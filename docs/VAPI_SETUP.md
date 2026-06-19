@@ -211,6 +211,27 @@ https://docs.nebius.com/studio/inference/api
 
 Keep `temperature` low — this is a forms-over-voice task, not creative writing.
 
+### Authenticating the webhooks (optional)
+
+FreightVoice ships an opt-in verifier (off by default). To require authentication,
+set on the middleware:
+
+```bash
+export VAPI_WEBHOOK_SECRET=your-secret
+export VAPI_AUTH_MODE=token          # token (default) | hmac
+```
+
+Then configure Vapi to send it. In **token** mode, set the assistant/server
+`secret` in the Vapi dashboard to the same value — Vapi sends it as the
+`X-Vapi-Secret` header, which the middleware checks in constant time. In **hmac**
+mode, FreightVoice expects an `X-Vapi-Signature` header equal to
+`HMAC-SHA256(raw_body, secret)`.
+
+> Vapi's exact header name and native HMAC support have shifted across versions —
+> confirm against https://docs.vapi.ai/server-url#authentication and set
+> `VAPI_SIGNATURE_HEADER` / `VAPI_AUTH_MODE` to match what your account sends.
+> Unauthenticated calls get `401 {"error":"unauthorized"}`.
+
 ---
 
 ## 4. Fine-tuning seam — `FreightVoice-FT-v1` (documented, NOT run)

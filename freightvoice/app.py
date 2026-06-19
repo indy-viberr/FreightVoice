@@ -28,7 +28,7 @@ import requests
 from flask import Flask, jsonify, request, send_from_directory
 from pydantic import ValidationError
 
-from . import config, store
+from . import config, security, store
 from .adapters import LoadNotFound, get_factoring_adapter, get_tms_adapter
 from .schemas import DeliveryRecord
 from .validation import DiscrepancyConfig, evaluate, is_clean
@@ -66,8 +66,20 @@ def create_app() -> Flask:
     factoring = get_factoring_adapter()
     disc_config = DiscrepancyConfig(weight_tolerance_pct=config.WEIGHT_TOLERANCE_PCT)
 
-    log.info("FreightVoice up — TMS backend=%s, weight tolerance=%.0f%%",
-             config.TMS_BACKEND, config.WEIGHT_TOLERANCE_PCT)
+    log.info("FreightVoice up — TMS backend=%s, weight tolerance=%.0f%%, webhook auth=%s",
+             config.TMS_BACKEND, config.WEIGHT_TOLERANCE_PCT,
+             f"{config.VAPI_AUTH_MODE} (on)" if security.is_enabled() else "off")
+
+    @app.before_request
+    def _authenticate_webhooks():
+        # Guard only the Vapi-facing webhooks; dashboard/health stay open.
+        if not request.path.startswith("/webhook/"):
+            return None
+        ok, reason = security.verify(request.headers, request.get_data())
+        if not ok:
+            log.warning("[auth] rejected %s: %s", request.path, reason)
+            return jsonify(error="unauthorized", message=reason), 401
+        return None
 
     # ------------------------------------------------------------------ #
     # Webhook: get_load_context

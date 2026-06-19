@@ -24,3 +24,15 @@ FACTORING_ENABLED = os.environ.get("FREIGHTVOICE_FACTORING", "fake").lower() != 
 
 # Outbound HTTP timeout (seconds) for service-to-service calls.
 HTTP_TIMEOUT = float(os.environ.get("FREIGHTVOICE_HTTP_TIMEOUT", "5"))
+
+# --- Vapi webhook authentication (OPT-IN) --------------------------------- #
+# Empty secret => verification DISABLED, so the zero-config demo runs as-is.
+# Set VAPI_WEBHOOK_SECRET to require every /webhook/* call to be authenticated.
+VAPI_WEBHOOK_SECRET = os.environ.get("VAPI_WEBHOOK_SECRET", "")
+
+# "token" — shared-secret header equality (Vapi's server.secret -> X-Vapi-Secret).
+# "hmac"  — HMAC-SHA256 of the raw body against a signature header.
+VAPI_AUTH_MODE = os.environ.get("VAPI_AUTH_MODE", "token").lower()
+
+# Header carrying the secret/signature. Defaults per mode if left blank.
+VAPI_SIGNATURE_HEADER = os.environ.get("VAPI_SIGNATURE_HEADER", "")

@@ -157,11 +157,31 @@ the first demo** — none of them are needed to run `make demo`:
 - **HIL (human-in-the-loop)** — when reconciliation lacks proof (e.g. detention),
   create a HIL task; post the call result back; rerun reconciliation; update the
   line item to supported / partially-supported / unsupported.
-- **Security & audit** — Vapi webhook **HMAC signature verification** (reject
-  missing/invalid, accept valid), structured JSON logs carrying `request_id`,
-  `invoice_id`, `load_id`, `vapi_call_id`, `rq_job_id`, durable audit entries for
-  every state transition, and **PII redaction** (phone/email) before any Nebius
-  prompt.
+- **Security & audit** — webhook signature verification is **already shipped as
+  an opt-in seam** (see below); the remaining Batch B items are structured JSON
+  logs carrying `request_id`, `invoice_id`, `load_id`, `vapi_call_id`,
+  `rq_job_id`, durable audit entries for every state transition, and **PII
+  redaction** (phone/email) before any Nebius prompt.
+
+### Webhook authentication (opt-in, shipped)
+
+Off by default so the zero-account demo runs untouched. Set a secret to require
+every `/webhook/*` call to be authenticated (dashboard/health stay open):
+
+```bash
+export VAPI_WEBHOOK_SECRET=your-secret      # enables auth
+export VAPI_AUTH_MODE=token                 # token (default) | hmac
+export VAPI_SIGNATURE_HEADER=               # blank => X-Vapi-Secret (token) / X-Vapi-Signature (hmac)
+```
+
+- **token** — constant-time equality of a shared secret Vapi sends in a header
+  (Vapi's `server.secret` → `X-Vapi-Secret`).
+- **hmac** — HMAC-SHA256 of the raw body vs a signature header (`sha256=`
+  prefix tolerated).
+
+Missing/invalid → `401 {"error":"unauthorized"}`. Implemented in
+[`freightvoice/security.py`](freightvoice/security.py); confirm Vapi's exact
+header/scheme against their server-auth docs before enabling in production.
 
 The build decision: ship the FreightVoice webhook path first (this repo), then
 add FreightLedger's extraction / RAG / HIL / reconciliation on top. The adapter
