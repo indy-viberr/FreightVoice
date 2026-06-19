@@ -4,3 +4,8 @@ __pycache__/
 *.sqlite
 *.db
 .pytest_cache/
+
+# Never commit secrets
+.env
+.env.*
+!.env.example
