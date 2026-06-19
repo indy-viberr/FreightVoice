@@ -11,6 +11,12 @@ clean. A live dashboard shows every captured POD as it lands.
 > webhook path. The only mock is the carrier's TMS (`faketms/`), and that's one
 > interface away from real — implement `SamsaraAdapter` and change one env var.
 
+**🏆 Judges:** see **[docs/SPONSORS.md](docs/SPONSORS.md)** for how FreightVoice
+uses all three sponsor tools — **Vapi** (voice + tool orchestration), **Nebius**
+(the LLM brain, via Vapi custom-LLM/BYOK), and **InsForge** (Postgres system of
+record) — each on its own layer, with an honest real-integration-vs-config-seam
+breakdown.
+
 ---
 
 ## 30-second quickstart

@@ -189,10 +189,10 @@ https://docs.vapi.ai/tools/custom-tools
 
 ## 3. Custom LLM via Nebius (BYOK)
 
-The PRD routes Vapi's LLM to a fine-tuned Llama hosted on Nebius AI Studio,
-using Vapi's OpenAI-compatible **custom LLM** provider. Vapi calls Nebius'
-`/v1/chat/completions`; Nebius runs the model. (Confirm the exact field names
-against Vapi's custom-LLM docs — https://docs.vapi.ai/customization/custom-llm —
+The PRD routes Vapi's LLM to a model hosted on **Nebius Token Factory** (formerly
+Nebius AI Studio), using Vapi's OpenAI-compatible **custom LLM** provider. Vapi
+calls Nebius' `/v1/chat/completions`; Nebius runs the model. (Confirm the exact
+field names against Vapi's custom-LLM docs — https://docs.vapi.ai/customization/custom-llm —
 rather than trusting this block verbatim; the provider schema has shifted across
 Vapi versions.)
 
@@ -200,17 +200,25 @@ Vapi versions.)
 {
   "model": {
     "provider": "custom-llm",
-    "url": "https://api.studio.nebius.ai/v1",
-    "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "url": "https://api.tokenfactory.nebius.com/v1/",
+    "model": "Qwen/Qwen3-30B-A3B-Instruct-2507",
     "temperature": 0.2,
-    "metadata": { "comment": "swap model -> FreightVoice-FT-v1 once SFT lands" }
+    "metadata": { "comment": "MoE, tool-use optimized, low latency for voice. Swap -> FreightVoice-FT-v1 once SFT lands." }
   }
 }
 ```
 
+**Model choice:** `Qwen/Qwen3-30B-A3B-Instruct-2507` is a Mixture-of-Experts
+model Nebius labels "optimized for tool use" with ~3B active params, so it keeps
+voice-grade latency. Low-latency / lowest-cost fallback (and the model in
+Nebius's own function-calling docs): `meta-llama/Meta-Llama-3.1-8B-Instruct-fast`.
+Disable any "thinking" mode for voice — reasoning tokens are audible dead air.
+Verify the exact model id in the Nebius console; native slugs are
+HuggingFace-style and case-sensitive.
+
 Set the Nebius API key as the BYOK credential for the custom-LLM provider in the
-Vapi dashboard (Provider Keys). Nebius API reference:
-https://docs.nebius.com/studio/inference/api
+Vapi dashboard (Provider Keys). Nebius Token Factory docs:
+https://docs.tokenfactory.nebius.com
 
 Keep `temperature` low — this is a forms-over-voice task, not creative writing.
 
@@ -248,7 +256,7 @@ reference and is intentionally not invoked anywhere in the codebase.
 ```python
 # scripts/sft_freightvoice_ft_v1.py  —  REFERENCE ONLY, not wired into the demo.
 # Supervised fine-tune of a base Llama on FreightVoice check-in transcripts,
-# run on Nebius AI Studio's fine-tuning API. Pseudocode-level; fill in the
+# run on Nebius Token Factory's fine-tuning API. Pseudocode-level; fill in the
 # dataset of {messages:[...]} chat samples drawn from real calls.
 #
 #   data/freightvoice_sft.jsonl  — one chat sample per line:
@@ -260,7 +268,7 @@ import os
 from openai import OpenAI  # Nebius exposes an OpenAI-compatible client
 
 client = OpenAI(
-    base_url="https://api.studio.nebius.ai/v1",
+    base_url="https://api.tokenfactory.nebius.com/v1/",
     api_key=os.environ["NEBIUS_API_KEY"],
 )
 
