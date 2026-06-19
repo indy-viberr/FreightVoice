@@ -121,6 +121,11 @@ def test_delivery_record_rejects_unknown_exception_type():
         DeliveryRecord(**bad)
 
 
+def test_delivery_record_normalizes_vapi_none_exception_sentinel():
+    rec = DeliveryRecord(**(_valid_record() | {"exception_type": "none"}))
+    assert rec.exception_type is None
+
+
 def test_delivery_record_blank_recipient_normalized_to_none():
     rec = DeliveryRecord(**(_valid_record() | {"recipient_name": "   "}))
     assert rec.recipient_name is None

@@ -140,6 +140,14 @@ class DeliveryRecord(_Strict):
         description="Short verbatim snippet for the discrepancy queue / audit.",
     )
 
+    @field_validator("exception_type", mode="before")
+    @classmethod
+    def _vapi_none_exception_is_none(cls, v):
+        """Normalize Vapi's explicit no-exception sentinel to an absent value."""
+        if isinstance(v, str) and v.strip().lower() == "none":
+            return None
+        return v
+
     @field_validator("recipient_name")
     @classmethod
     def _blank_name_is_none(cls, v: str | None) -> str | None:

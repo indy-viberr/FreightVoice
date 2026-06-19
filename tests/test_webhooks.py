@@ -88,6 +88,20 @@ def test_push_clean_record_invoices_and_changes_tms_state(client, faketms_server
     assert any(p["load_id"] == "L1001" for p in state["pods"])
 
 
+def test_push_accepts_vapi_none_exception_sentinel(client, faketms_server):
+    args = _clean_record_args() | {"exception_type": "none"}
+    resp = client.post("/webhook/push_delivery_record",
+                       json=vapi_envelope("p_none", "push_delivery_record", args))
+
+    assert resp.status_code == 200
+    result = first_result(resp.get_json())
+    assert "billing" in result["result"].lower()
+
+    state = requests.get(f"{faketms_server}/state").json()
+    load = next(l for l in state["loads"] if l["load_id"] == "L1001")
+    assert load["status"] == "invoiced"
+
+
 def test_push_validation_error_is_agent_friendly(client):
     bad = _clean_record_args() | {"actual_pieces": -5}
     resp = client.post("/webhook/push_delivery_record",
