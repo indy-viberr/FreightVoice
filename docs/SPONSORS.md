@@ -138,6 +138,29 @@ create table discrepancies (
 );
 ```
 
+**Where the API key goes:** the InsForge **Bearer token** is read from the
+`FAKETMS_INSFORGE_TOKEN` env var — never committed. Use the InsForge project key
+with write access (from the InsForge console / project settings). The repo does
+**not** auto-load `.env`, so export it in the shell (or prefix the command):
+
+```bash
+export FAKETMS_INSFORGE_TOKEN=your-insforge-bearer-token
+# or one-shot:  FAKETMS_INSFORGE_TOKEN=... FAKETMS_STORAGE=insforge make demo
+```
+
+**Verify it's working (one command):**
+
+```bash
+python scripts/check_insforge.py          # config → reachable → auth → tables exist
+python scripts/check_insforge.py --seed    # also reseed the 3 demo loads via InsForgeStore
+```
+
+It checks, in order: token set → host reachable → auth accepted → the three
+tables exist, with a specific fix for each failure. Once it prints
+`✓ InsForge is working`, run the demo with `FAKETMS_STORAGE=insforge` and watch
+loads/PODs/discrepancies land in InsForge (cross-check in the InsForge console's
+table viewer, or `curl <url>/api/database/records/loads -H "Authorization: Bearer $FAKETMS_INSFORGE_TOKEN"`).
+
 **Roadmap (documented, not in the demo):** the same InsForge project is the
 **pgvector** store for the Batch B invoice-reconciliation layer — evidence chunks
 filtered by relational keys (`load_id`, `source_type`) for RAG.
