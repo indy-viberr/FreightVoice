@@ -153,7 +153,8 @@ the first demo** — none of them are needed to run `make demo`:
 - **RAG evidence** — InsForge **Postgres + pgvector** as both system of record
   and vector store. `/api/rag/search` returns evidence chunks **filtered by
   relational keys** (`load_id`, `source_type`) so there's no cross-load leakage;
-  low-confidence matches route to review.
+  low-confidence matches route to review. (The system-of-record half is already
+  seam'd — see InsForge storage backend below.)
 - **HIL (human-in-the-loop)** — when reconciliation lacks proof (e.g. detention),
   create a HIL task; post the call result back; rerun reconciliation; update the
   line item to supported / partially-supported / unsupported.
@@ -189,13 +190,35 @@ seam here is what makes that layering clean.
 
 ## Tech & layout
 
-Python 3.11+, Flask, **stdlib `sqlite3`** (no ORM), `requests`, `pydantic` v2 for
-schemas/validation, `pytest`.
+Python 3.11+, Flask, **stdlib `sqlite3`** (no ORM) by default, `requests`,
+`pydantic` v2 for schemas/validation, `pytest`.
+
+### InsForge storage backend (the storage seam)
+
+The fake TMS persists through a `Store` interface (`faketms/stores/`), mirroring
+the TMS-adapter pattern. Two backends ship:
+
+- **`SqliteStore`** — stdlib `sqlite3`, the zero-config demo default.
+- **`InsForgeStore`** — backs the TMS with **InsForge** (managed Postgres + an
+  auto-generated PostgREST-style REST API), making the stand-in run on a real
+  database. Switch with `FAKETMS_STORAGE=insforge`.
+
+```bash
+export FAKETMS_STORAGE=insforge
+export FAKETMS_INSFORGE_URL=http://localhost:7130   # or https://<app>.insforge.app
+export FAKETMS_INSFORGE_TOKEN=your-bearer-token
+```
+
+The demo stays account-free on SQLite; InsForge is opt-in. Tables
+`loads` / `pods` / `discrepancies` must exist in the InsForge project first
+(create via an InsForge migration / console — DDL isn't part of the records REST
+API; suggested columns are documented in `faketms/stores/insforge_store.py`).
 
 ```
 freightvoice/        the product (webhooks, validation, schemas, adapters, dashboard)
   adapters/          base ABCs + fake (working) + samsara/motive/rts (stubs)
-faketms/             the only mock — seeded SQLite TMS
+faketms/             the only mock — seeded TMS
+  stores/            storage seam: SqliteStore (default) + InsForgeStore (REST)
 demo/simulate_call.py replay the 3 loads without a phone
 docs/VAPI_SETUP.md   Vapi assistant prompt, tools, Nebius block, SFT script
 tests/               schema, discrepancy, webhook-contract, end-to-end

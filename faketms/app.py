@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 
 from flask import Flask, jsonify, request
 
-from . import db
+from .stores import get_store
 
 
 def _now() -> str:
@@ -35,7 +35,9 @@ def _now() -> str:
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    db.init_db(reset=True)
+    # Storage backend chosen by FAKETMS_STORAGE (sqlite default | insforge).
+    store = get_store()
+    store.init(reset=True)
 
     @app.get("/health")
     def health():
@@ -43,7 +45,7 @@ def create_app() -> Flask:
 
     @app.get("/loads/<load_id>")
     def get_load(load_id: str):
-        load = db.get_load(load_id)
+        load = store.get_load(load_id)
         if load is None:
             return jsonify(error="load_not_found", load_id=load_id), 404
         return jsonify(load)
@@ -53,10 +55,10 @@ def create_app() -> Flask:
         body = request.get_json(force=True)
         load_id = body.get("load_id")
         record = body.get("record") or {}
-        load = db.get_load(load_id)
+        load = store.get_load(load_id)
         if load is None:
             return jsonify(error="load_not_found", load_id=load_id), 404
-        db.save_pod(
+        store.save_pod(
             load_id=load_id,
             record_json=record,
             readback=body.get("readback"),
@@ -67,21 +69,21 @@ def create_app() -> Flask:
 
     @app.post("/invoice/<load_id>")
     def post_invoice(load_id: str):
-        load = db.get_load(load_id)
+        load = store.get_load(load_id)
         if load is None:
             return jsonify(error="load_not_found", load_id=load_id), 404
         # A real TMS returns its own invoice id; we synthesize a believable one.
         invoice_number = f"INV-{load_id}-{datetime.now(timezone.utc).strftime('%H%M%S')}"
-        db.mark_invoiced(load_id, invoice_number)
+        store.mark_invoiced(load_id, invoice_number)
         return jsonify(status="invoiced", load_id=load_id, invoice_number=invoice_number)
 
     @app.post("/discrepancy")
     def post_discrepancy():
         body = request.get_json(force=True)
         load_id = body.get("load_id")
-        if db.get_load(load_id) is None:
+        if store.get_load(load_id) is None:
             return jsonify(error="load_not_found", load_id=load_id), 404
-        db.save_discrepancy(
+        store.save_discrepancy(
             load_id=load_id,
             code=body.get("code", "unspecified"),
             severity=body.get("severity", "warning"),
@@ -93,12 +95,13 @@ def create_app() -> Flask:
 
     @app.post("/reset")
     def reset_demo():
-        db.init_db(reset=True)
-        return jsonify(status="reset", loads=len(db.SEED_LOADS))
+        # Route through the storage seam so reset works on any backend.
+        store.init(reset=True)
+        return jsonify(status="reset", loads=len(store.dump_state()["loads"]))
 
     @app.get("/state")
     def state():
-        return jsonify(db.dump_state())
+        return jsonify(store.dump_state())
 
     return app
 
