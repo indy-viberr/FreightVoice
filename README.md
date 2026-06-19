@@ -226,7 +226,11 @@ freightvoice/        the product (webhooks, validation, schemas, adapters, dashb
 faketms/             the only mock — seeded TMS
   stores/            storage seam: SqliteStore (default) + InsForgeStore (REST)
 demo/simulate_call.py replay the 3 loads without a phone
+scripts/check_insforge.py  one-command InsForge connectivity verifier
+migrations/          InsForge table DDL (applied via @insforge/cli)
 docs/VAPI_SETUP.md   Vapi assistant prompt, tools, Nebius block, SFT script
+docs/SPONSORS.md     how all three sponsors (Vapi/Nebius/InsForge) are used — for judges
+docs/TEAMMATE_SETUP.md  run the demo (SQLite or InsForge) on another laptop
 tests/               schema, discrepancy, webhook-contract, end-to-end
 ```
 

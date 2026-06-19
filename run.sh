@@ -9,6 +9,15 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Auto-load a local .env (gitignored) if present, so teammates can drop their
+# InsForge creds (or any FREIGHTVOICE_*/FAKETMS_* vars) in one file instead of
+# exporting them by hand each run. Values in .env take effect for this run; to
+# override once, edit .env (or comment the line and export inline).
+if [ -f .env ]; then
+  echo "▸ loading .env"
+  set -a; . ./.env; set +a
+fi
+
 PY=python3
 VENV=.venv
 
