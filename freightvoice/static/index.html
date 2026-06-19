@@ -34,10 +34,36 @@
   .logo{
     display:flex;align-items:center;justify-content:center;
     width:46px;height:46px;border-radius:12px;
-    background:linear-gradient(145deg,#1d4ed8,#0ea5e9);
-    box-shadow:0 6px 18px rgba(14,165,233,.35);
+    position:relative;isolation:isolate;overflow:hidden;
+    background:
+      radial-gradient(circle at 28% 18%,rgba(255,255,255,.7),transparent 24%),
+      linear-gradient(145deg,#2563eb 10%,#0ea5e9 58%,#22d3ee);
+    border:1px solid rgba(186,230,253,.65);
+    box-shadow:0 0 14px rgba(56,189,248,.48),0 8px 24px rgba(14,165,233,.4);
     font-size:24px;
+    animation:logo-float 3.2s ease-in-out infinite,logo-glow 2.4s ease-in-out infinite;
   }
+  .logo span{position:relative;z-index:2;filter:drop-shadow(0 2px 3px rgba(3,7,18,.35))}
+  .logo::before{
+    content:"";position:absolute;inset:-45%;z-index:0;
+    background:conic-gradient(from 0deg,transparent 0 30%,rgba(255,255,255,.6) 42%,transparent 54% 100%);
+    animation:logo-orbit 4.5s linear infinite;
+  }
+  .logo::after{
+    content:"";position:absolute;z-index:3;pointer-events:none;
+    top:-25%;bottom:-25%;left:-55%;width:12px;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.88),transparent);
+    filter:blur(1px);transform:skewX(-18deg);
+    animation:logo-shine 2.9s ease-in-out infinite;
+  }
+  @keyframes logo-float{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-3px) rotate(1deg)}}
+  @keyframes logo-glow{
+    0%,100%{box-shadow:0 0 12px rgba(56,189,248,.42),0 8px 22px rgba(14,165,233,.35)}
+    50%{box-shadow:0 0 24px rgba(103,232,249,.72),0 10px 30px rgba(37,99,235,.52)}
+  }
+  @keyframes logo-orbit{to{transform:rotate(360deg)}}
+  @keyframes logo-shine{0%,28%{left:-55%;opacity:0}40%{opacity:1}62%,100%{left:135%;opacity:0}}
+  @media(prefers-reduced-motion:reduce){.logo,.logo::before,.logo::after{animation:none}}
   .title h1{font-size:26px;margin:0;letter-spacing:-.02em;font-weight:700}
   .title p{margin:2px 0 0;color:var(--muted);font-size:13px}
   .header-right{margin-left:auto;display:flex;align-items:center;gap:14px}
@@ -148,7 +174,7 @@
 </head>
 <body>
   <header>
-    <div class="logo">📞</div>
+    <div class="logo" aria-label="FreightVoice"><span>📞</span></div>
     <div class="title">
       <h1>FreightVoice</h1>
       <p>Voice-captured proof of delivery — live webhook path</p>
