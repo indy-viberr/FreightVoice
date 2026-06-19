@@ -95,6 +95,11 @@ def test_delivery_record_parses_valid():
     assert rec.accessorials == []
 
 
+def test_delivery_record_normalizes_load_id_letters():
+    rec = DeliveryRecord(**(_valid_record() | {"load_id": " ab-12c "}))
+    assert rec.load_id == "AB-12C"
+
+
 def test_delivery_record_accepts_nested_accessorials():
     rec = DeliveryRecord(
         **_valid_record(),

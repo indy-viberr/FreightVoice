@@ -30,7 +30,7 @@ from pydantic import ValidationError
 
 from . import config, security, store
 from .adapters import LoadNotFound, get_factoring_adapter, get_tms_adapter
-from .schemas import DeliveryRecord
+from .schemas import DeliveryRecord, normalize_load_id
 from .validation import DiscrepancyConfig, evaluate, is_clean
 from .vapi import ToolCall, parse_tool_calls, results_envelope
 
@@ -91,8 +91,11 @@ def create_app() -> Flask:
             return err
         results = []
         for call in calls:
-            load_id = (call.arguments.get("load_id")
-                       or call.arguments.get("pro_number") or "").strip()
+            load_id = normalize_load_id(
+                call.arguments.get("load_id")
+                or call.arguments.get("pro_number")
+                or ""
+            )
             log.info("[get_load_context] inbound load_id=%r", load_id)
 
             if not load_id:
@@ -155,7 +158,7 @@ def create_app() -> Flask:
         results = []
         for call in calls:
             a = call.arguments
-            load_id = (a.get("load_id") or "").strip()
+            load_id = normalize_load_id(a.get("load_id") or "")
             reason = a.get("reason") or a.get("message") or "Driver-reported issue"
             severity = (a.get("severity") or "warning").lower()
             excerpt = a.get("transcript_excerpt")
@@ -196,7 +199,7 @@ def create_app() -> Flask:
         results = []
         for call in calls:
             a = call.arguments
-            load_id = (a.get("load_id") or "").strip() or None
+            load_id = normalize_load_id(a.get("load_id") or "") or None
             reason = a.get("reason") or "Driver disconnected"
             phone = a.get("phone") or a.get("callback_number")
             log.info("[schedule_callback] load=%s phone=%s reason=%r",

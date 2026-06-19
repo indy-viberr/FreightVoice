@@ -61,6 +61,14 @@ def test_get_load_context_accepts_pro_number_alias(client):
     assert payload["load"]["load_id"] == "L2002"
 
 
+def test_get_load_context_normalizes_lowercase_load_id(client):
+    resp = client.post("/webhook/get_load_context",
+                       json=vapi_envelope("lower", "get_load_context", {"load_id": "l1001"}))
+    payload = json.loads(first_result(resp.get_json())["result"])
+    assert payload["found"] is True
+    assert payload["load"]["load_id"] == "L1001"
+
+
 # --- push_delivery_record ------------------------------------------------- #
 def _clean_record_args() -> dict:
     return {
@@ -100,6 +108,18 @@ def test_push_accepts_vapi_none_exception_sentinel(client, faketms_server):
     state = requests.get(f"{faketms_server}/state").json()
     load = next(l for l in state["loads"] if l["load_id"] == "L1001")
     assert load["status"] == "invoiced"
+
+
+def test_push_normalizes_lowercase_load_id(client, faketms_server):
+    args = _clean_record_args() | {"load_id": "l1001"}
+    resp = client.post("/webhook/push_delivery_record",
+                       json=vapi_envelope("p_lower", "push_delivery_record", args))
+
+    assert resp.status_code == 200
+    assert "billing" in first_result(resp.get_json())["result"].lower()
+
+    state = requests.get(f"{faketms_server}/state").json()
+    assert any(p["load_id"] == "L1001" for p in state["pods"])
 
 
 def test_push_validation_error_is_agent_friendly(client):

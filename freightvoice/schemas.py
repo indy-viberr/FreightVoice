@@ -72,6 +72,11 @@ class ExceptionType(str, Enum):
     overage = "overage"
 
 
+def normalize_load_id(value: str) -> str:
+    """Canonicalize spoken load/PRO identifiers without changing punctuation."""
+    return value.strip().upper()
+
+
 # --------------------------------------------------------------------------- #
 # Load context (TMS -> agent)
 # --------------------------------------------------------------------------- #
@@ -139,6 +144,13 @@ class DeliveryRecord(_Strict):
         default=None,
         description="Short verbatim snippet for the discrepancy queue / audit.",
     )
+
+    @field_validator("load_id", mode="before")
+    @classmethod
+    def _normalize_load_id(cls, v):
+        if isinstance(v, str):
+            return normalize_load_id(v)
+        return v
 
     @field_validator("exception_type", mode="before")
     @classmethod
