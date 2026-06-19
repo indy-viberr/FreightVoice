@@ -97,3 +97,21 @@ def test_pod_then_no_invoice_stays_delivered(tms):
                 if l["load_id"] == "L2002")
     assert load["status"] == "delivered"
     assert load["invoice_number"] is None
+
+
+def test_reset_restores_initial_demo_state(tms):
+    tms.post("/pod", json={"load_id": "L1001", "record": {"load_id": "L1001"},
+                            "readback": "x", "clean": True})
+    tms.post("/invoice/L1001")
+    tms.post("/discrepancy", json={"load_id": "L2002", "code": "weight_variance",
+                                    "severity": "warning", "message": "off"})
+
+    response = tms.post("/reset")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "reset", "loads": 3}
+    state = tms.get("/state").get_json()
+    assert {load["load_id"] for load in state["loads"]} == {"L1001", "L2002", "L3003"}
+    assert all(load["status"] == "pending" for load in state["loads"])
+    assert state["pods"] == []
+    assert state["discrepancies"] == []

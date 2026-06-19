@@ -161,6 +161,42 @@ def test_schedule_callback_records_intent(client):
     assert any(c["load_id"] == "L2002" for c in state["callbacks"])
 
 
+# --- demo reset ----------------------------------------------------------- #
+def test_demo_reset_clears_tms_and_middleware_state(client):
+    client.post("/webhook/schedule_callback",
+                json=vapi_envelope("cb", "schedule_callback",
+                                   {"load_id": "L2002", "reason": "call dropped"}))
+    client.post("/webhook/flag_discrepancy",
+                json=vapi_envelope("disc", "flag_discrepancy",
+                                   {"load_id": "L3003", "reason": "damage"}))
+    client.post("/webhook/push_delivery_record",
+                json=vapi_envelope("pod", "push_delivery_record", _clean_record_args()))
+
+    before = client.get("/api/state").get_json()
+    assert before["callbacks"]
+    assert before["decisions"]
+    assert before["pods"]
+    assert before["discrepancies"]
+
+    response = client.post("/api/reset")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "reset"}
+    state = client.get("/api/state").get_json()
+    assert all(load["status"] == "pending" for load in state["loads"])
+    assert state["pods"] == []
+    assert state["discrepancies"] == []
+    assert state["callbacks"] == []
+    assert state["decisions"] == []
+
+
+def test_dashboard_includes_reset_control(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert b'id="reset-demo"' in response.data
+    assert b"fetch('/api/reset'" in response.data
+
+
 # --- malformed / missing-field handling ----------------------------------- #
 def test_malformed_json_returns_controlled_error(client):
     resp = client.post("/webhook/push_delivery_record",

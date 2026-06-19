@@ -54,6 +54,11 @@
     100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}
   }
   .badge-backend{color:var(--blue);border-color:var(--blue-bg);background:var(--blue-bg)}
+  .reset-button{
+    appearance:none;cursor:pointer;color:var(--amber);border-color:#4a380f;
+    transition:border-color .15s ease,background .15s ease,color .15s ease}
+  .reset-button:hover{color:#ffe08a;background:var(--amber-bg);border-color:#6b5012}
+  .reset-button:disabled{cursor:wait;opacity:.55}
 
   /* ---- stat strip ---- */
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
@@ -149,6 +154,7 @@
       <p>Voice-captured proof of delivery — live webhook path</p>
     </div>
     <div class="header-right">
+      <button class="pill reset-button" id="reset-demo" type="button">↻ Reset demo</button>
       <span class="offline pill">⚠ TMS unreachable</span>
       <span class="pill badge-backend" id="backend">backend: —</span>
       <span class="pill"><span class="dot"></span> live</span>
@@ -285,6 +291,32 @@ async function tick(){
     document.body.classList.add('disconnected');
   }
 }
+
+async function resetDemo(){
+  const confirmed = window.confirm(
+    'Reset all loads, PODs, discrepancies, callbacks, and activity to the starting demo state?'
+  );
+  if(!confirmed) return;
+
+  const button = $('reset-demo');
+  button.disabled = true;
+  button.textContent = '↻ Resetting…';
+  try{
+    const response = await fetch('/api/reset', {method:'POST'});
+    if(!response.ok){
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.message || 'Reset failed.');
+    }
+    await tick();
+  }catch(error){
+    window.alert(error.message || 'Reset failed.');
+  }finally{
+    button.disabled = false;
+    button.textContent = '↻ Reset demo';
+  }
+}
+
+$('reset-demo').addEventListener('click', resetDemo);
 tick();
 setInterval(tick, 2000);
 </script>

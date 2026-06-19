@@ -233,6 +233,27 @@ def create_app() -> Flask:
         tms_state["backend"] = config.TMS_BACKEND
         return jsonify(tms_state)
 
+    @app.post("/api/reset")
+    def api_reset():
+        """Restore the fake TMS and middleware to the initial demo state."""
+        if config.TMS_BACKEND != "fake":
+            return jsonify(
+                error="reset_unavailable",
+                message="Demo reset is only available with the fake TMS backend.",
+            ), 409
+
+        try:
+            resp = requests.post(
+                f"{config.FAKETMS_URL}/reset",
+                timeout=config.HTTP_TIMEOUT,
+            )
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            return jsonify(error="tms_reset_failed", message=str(e)), 502
+
+        store.reset()
+        return jsonify(status="reset")
+
     @app.get("/health")
     def health():
         return jsonify(status="ok", service="freightvoice", backend=config.TMS_BACKEND)

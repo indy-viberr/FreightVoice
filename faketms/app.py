@@ -15,6 +15,7 @@ Endpoints
     POST /pod                  -> store POD, mark load delivered
     POST /invoice/<load_id>    -> mark invoiced, return a fake invoice number
     POST /discrepancy          -> append to the discrepancy queue
+    POST /reset                -> wipe demo activity and reseed the three loads
     GET  /state                -> dump everything (dashboard + tests)
     GET  /health               -> liveness
 """
@@ -89,6 +90,11 @@ def create_app() -> Flask:
             now=_now(),
         )
         return jsonify(status="queued", load_id=load_id)
+
+    @app.post("/reset")
+    def reset_demo():
+        db.init_db(reset=True)
+        return jsonify(status="reset", loads=len(db.SEED_LOADS))
 
     @app.get("/state")
     def state():
