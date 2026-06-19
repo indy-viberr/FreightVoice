@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreightVoice · Live POD Dashboard</title>
+<style>
+  :root{
+    --bg:#0b0f17; --bg2:#0f1622; --panel:#131c2b; --panel2:#172234;
+    --line:#1f2c40; --line2:#26344c;
+    --ink:#eaf0f8; --muted:#8da2bf;
+    --muted2:#7186a3;
+    --green:#34d399; --green-bg:#0c2c24;
+    --amber:#fbbf24; --amber-bg:#33270a;
+    --red:#fb7185;  --red-bg:#371520;
+    --blue:#60a5fa; --blue-bg:#102339;
+    --slate:#94a3b8;
+    --shadow:0 10px 30px rgba(0,0,0,.35);
+    font-synthesis:none;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 80% -10%, #14213a 0%, var(--bg) 55%) fixed;
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding:22px 26px 40px;
+  }
+  a{color:inherit}
+
+  /* ---- header ---- */
+  header{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+  .logo{
+    display:flex;align-items:center;justify-content:center;
+    width:46px;height:46px;border-radius:12px;
+    background:linear-gradient(145deg,#1d4ed8,#0ea5e9);
+    box-shadow:0 6px 18px rgba(14,165,233,.35);
+    font-size:24px;
+  }
+  .title h1{font-size:26px;margin:0;letter-spacing:-.02em;font-weight:700}
+  .title p{margin:2px 0 0;color:var(--muted);font-size:13px}
+  .header-right{margin-left:auto;display:flex;align-items:center;gap:14px}
+  .pill{
+    display:inline-flex;align-items:center;gap:7px;
+    padding:6px 12px;border-radius:999px;border:1px solid var(--line2);
+    background:var(--panel);font-size:12.5px;color:var(--muted);font-weight:600;
+  }
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--green);
+    box-shadow:0 0 0 0 rgba(52,211,153,.6);animation:pulse 1.8s infinite}
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(52,211,153,.55)}
+    70%{box-shadow:0 0 0 9px rgba(52,211,153,0)}
+    100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}
+  }
+  .badge-backend{color:var(--blue);border-color:var(--blue-bg);background:var(--blue-bg)}
+
+  /* ---- stat strip ---- */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+  .stat{
+    background:linear-gradient(180deg,var(--panel2),var(--panel));
+    border:1px solid var(--line);border-radius:14px;padding:14px 18px;box-shadow:var(--shadow)}
+  .stat .n{font-size:38px;font-weight:750;letter-spacing:-.03em;line-height:1}
+  .stat .l{margin-top:6px;color:var(--muted);font-size:12.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+  .stat.green .n{color:var(--green)} .stat.amber .n{color:var(--amber)}
+  .stat.red .n{color:var(--red)} .stat.blue .n{color:var(--blue)}
+
+  /* ---- layout ---- */
+  .grid{display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:16px}
+  .col{display:flex;flex-direction:column;gap:16px;min-width:0}
+  .panel{
+    background:linear-gradient(180deg,var(--panel2),var(--panel));
+    border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+  .panel > h2{
+    margin:0;padding:14px 18px;font-size:14px;font-weight:700;letter-spacing:.02em;
+    border-bottom:1px solid var(--line);display:flex;align-items:center;gap:9px;color:var(--ink)}
+  .panel > h2 .count{
+    margin-left:auto;font-size:12px;color:var(--muted);background:var(--bg2);
+    border:1px solid var(--line2);padding:2px 9px;border-radius:999px;font-weight:600}
+  .body{padding:8px 12px 14px;display:flex;flex-direction:column;gap:9px;max-height:60vh;overflow:auto}
+  .empty{color:var(--muted2);font-size:13px;padding:14px;text-align:center}
+
+  /* ---- load rows ---- */
+  .load{
+    display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;
+    padding:12px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg2)}
+  .load .id{font-weight:750;font-size:15px;letter-spacing:-.01em}
+  .load .route{color:var(--muted);font-size:12.5px;margin-top:3px}
+  .load .meta{color:var(--muted2);font-size:11.5px;margin-top:3px}
+  .load .inv{font-size:11px;color:var(--green);margin-top:4px;font-weight:600}
+  .equip{font-size:10.5px;color:var(--slate);text-transform:uppercase;letter-spacing:.05em}
+
+  .status{font-size:11px;font-weight:700;padding:5px 11px;border-radius:999px;white-space:nowrap;text-transform:uppercase;letter-spacing:.04em}
+  .s-pending{color:var(--slate);background:#16202f;border:1px solid var(--line2)}
+  .s-delivered{color:var(--amber);background:var(--amber-bg);border:1px solid #4a380f}
+  .s-invoiced{color:var(--green);background:var(--green-bg);border:1px solid #11402f}
+
+  /* ---- POD cards ---- */
+  .pod{padding:12px 13px;border:1px solid var(--line);border-radius:12px;background:var(--bg2)}
+  .pod .top{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .pod .pid{font-weight:700;font-size:13.5px}
+  .tag{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.04em}
+  .tag-clean{color:var(--green);background:var(--green-bg);border:1px solid #11402f}
+  .tag-flagged{color:var(--amber);background:var(--amber-bg);border:1px solid #4a380f}
+  .pod .say{color:var(--ink);font-size:13px;line-height:1.5;opacity:.92}
+  .pod .when{color:var(--muted2);font-size:11px;margin-top:7px}
+
+  /* ---- discrepancy queue ---- */
+  .disc{padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);
+    border-left-width:3px}
+  .disc.critical{border-left-color:var(--red)}
+  .disc.warning{border-left-color:var(--amber)}
+  .disc.info{border-left-color:var(--blue)}
+  .disc .top{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+  .disc .dload{font-weight:700;font-size:13px}
+  .sev{font-size:10px;font-weight:800;padding:2px 8px;border-radius:6px;text-transform:uppercase;letter-spacing:.05em}
+  .sev-critical{color:var(--red);background:var(--red-bg)}
+  .sev-warning{color:var(--amber);background:var(--amber-bg)}
+  .sev-info{color:var(--blue);background:var(--blue-bg)}
+  .code{margin-left:auto;font-size:10.5px;color:var(--muted2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .disc .msg{font-size:12.5px;color:var(--ink);opacity:.9;line-height:1.45}
+  .disc .quote{font-size:11.5px;color:var(--muted);font-style:italic;margin-top:6px;
+    border-left:2px solid var(--line2);padding-left:8px}
+
+  /* ---- activity feed ---- */
+  .feed{display:flex;flex-direction:column;gap:0}
+  .ev{display:flex;gap:10px;align-items:baseline;padding:8px 4px;border-bottom:1px solid var(--line)}
+  .ev:last-child{border-bottom:0}
+  .ev .ts{color:var(--muted2);font-size:11px;font-variant-numeric:tabular-nums;min-width:64px}
+  .ev .ep{font-size:10.5px;font-family:ui-monospace,Menlo,monospace;color:var(--slate);min-width:122px}
+  .ev .sm{font-size:12.5px}
+  .ev.success .sm{color:var(--green)} .ev.warning .sm{color:var(--amber)}
+  .ev.critical .sm{color:var(--red)} .ev.info .sm{color:var(--ink);opacity:.85}
+
+  .callback{padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg2)}
+  .callback .cb1{font-weight:600;font-size:13px}
+  .callback .cb2{color:var(--muted);font-size:11.5px;margin-top:3px}
+
+  .offline{display:none;color:var(--red);font-size:12px}
+  body.disconnected .offline{display:inline}
+  @media(max-width:1100px){.grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+  <header>
+    <div class="logo">📞</div>
+    <div class="title">
+      <h1>FreightVoice</h1>
+      <p>Voice-captured proof of delivery — live webhook path</p>
+    </div>
+    <div class="header-right">
+      <span class="offline pill">⚠ TMS unreachable</span>
+      <span class="pill badge-backend" id="backend">backend: —</span>
+      <span class="pill"><span class="dot"></span> live</span>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat blue"><div class="n" id="st-loads">0</div><div class="l">Loads</div></div>
+    <div class="stat amber"><div class="n" id="st-delivered">0</div><div class="l">Delivered</div></div>
+    <div class="stat green"><div class="n" id="st-invoiced">0</div><div class="l">Invoiced</div></div>
+    <div class="stat red"><div class="n" id="st-flagged">0</div><div class="l">Flagged</div></div>
+  </section>
+
+  <div class="grid">
+    <div class="col">
+      <div class="panel">
+        <h2>📦 Loads <span class="count" id="c-loads">0</span></h2>
+        <div class="body" id="loads"></div>
+      </div>
+      <div class="panel">
+        <h2>🟢 Activity <span class="count" id="c-feed">0</span></h2>
+        <div class="body feed" id="feed"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="panel">
+        <h2>✅ PODs captured <span class="count" id="c-pods">0</span></h2>
+        <div class="body" id="pods"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="panel">
+        <h2>⚠️ Discrepancy queue <span class="count" id="c-disc">0</span></h2>
+        <div class="body" id="disc"></div>
+      </div>
+      <div class="panel">
+        <h2>↩️ Callbacks <span class="count" id="c-cb">0</span></h2>
+        <div class="body" id="callbacks"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => (s==null?'':String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtTime = iso => { try{ return new Date(iso).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}); }catch(e){ return ''; } };
+const fmtNum = n => Number(n).toLocaleString();
+
+function loadRow(l){
+  const inv = l.invoice_number ? `<div class="inv">▸ ${esc(l.invoice_number)}</div>` : '';
+  return `<div class="load">
+    <div>
+      <div class="id">${esc(l.load_id)}</div>
+      <div class="equip">${esc((l.equipment_type||'').replace('_',' '))}</div>
+    </div>
+    <div>
+      <div class="route">${esc(l.shipper)} → ${esc(l.consignee)}</div>
+      <div class="meta">${esc(l.commodity)} · ${fmtNum(l.expected_pieces)} pcs · ${fmtNum(l.expected_weight_lbs)} lbs</div>
+      ${inv}
+    </div>
+    <div class="status s-${esc(l.status)}">${esc(l.status)}</div>
+  </div>`;
+}
+
+function podCard(p){
+  const tag = p.clean ? `<span class="tag tag-clean">clean</span>` : `<span class="tag tag-flagged">flagged</span>`;
+  return `<div class="pod">
+    <div class="top"><span class="pid">${esc(p.load_id)}</span>${tag}</div>
+    <div class="say">${p.readback ? '“'+esc(p.readback)+'”' : '<span style="opacity:.5">no readback</span>'}</div>
+    <div class="when">${fmtTime(p.created_at)}</div>
+  </div>`;
+}
+
+function discCard(d){
+  const sev = esc(d.severity||'info');
+  const q = d.transcript_excerpt ? `<div class="quote">“${esc(d.transcript_excerpt)}”</div>` : '';
+  return `<div class="disc ${sev}">
+    <div class="top">
+      <span class="dload">${esc(d.load_id)}</span>
+      <span class="sev sev-${sev}">${sev}</span>
+      <span class="code">${esc(d.code)}</span>
+    </div>
+    <div class="msg">${esc(d.message)}</div>
+    ${q}
+  </div>`;
+}
+
+function evRow(e){
+  return `<div class="ev ${esc(e.level||'info')}">
+    <span class="ts">${fmtTime(e.created_at)}</span>
+    <span class="ep">${esc(e.endpoint)}</span>
+    <span class="sm">${esc(e.summary)}</span>
+  </div>`;
+}
+
+function callbackCard(c){
+  return `<div class="callback">
+    <div class="cb1">${esc(c.load_id||'(no load)')} · ${esc(c.status||'pending')}</div>
+    <div class="cb2">${esc(c.reason||'')}${c.phone?' · '+esc(c.phone):''} · ${fmtTime(c.created_at)}</div>
+  </div>`;
+}
+
+const EMPTY = msg => `<div class="empty">${msg}</div>`;
+
+async function tick(){
+  try{
+    const r = await fetch('/api/state', {cache:'no-store'});
+    const s = await r.json();
+    document.body.classList.toggle('disconnected', !!s.tms_error);
+    $('backend').textContent = 'backend: ' + (s.backend||'—');
+
+    const loads = s.loads||[], pods = s.pods||[], disc = s.discrepancies||[],
+          feed = s.decisions||[], cbs = s.callbacks||[];
+
+    $('st-loads').textContent = loads.length;
+    $('st-delivered').textContent = loads.filter(l=>l.status==='delivered').length;
+    $('st-invoiced').textContent = loads.filter(l=>l.status==='invoiced').length;
+    $('st-flagged').textContent = new Set(disc.map(d=>d.load_id)).size;
+
+    $('c-loads').textContent = loads.length;
+    $('c-pods').textContent = pods.length;
+    $('c-disc').textContent = disc.length;
+    $('c-feed').textContent = feed.length;
+    $('c-cb').textContent = cbs.length;
+
+    $('loads').innerHTML = loads.length ? loads.map(loadRow).join('') : EMPTY('No loads seeded.');
+    $('pods').innerHTML = pods.length ? pods.map(podCard).join('') : EMPTY('No PODs captured yet — run a call.');
+    $('disc').innerHTML = disc.length ? disc.map(discCard).join('') : EMPTY('Queue clear. ✨');
+    $('feed').innerHTML = feed.length ? feed.map(evRow).join('') : EMPTY('Waiting for webhook activity…');
+    $('callbacks').innerHTML = cbs.length ? cbs.map(callbackCard).join('') : EMPTY('No callbacks scheduled.');
+  }catch(e){
+    document.body.classList.add('disconnected');
+  }
+}
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>
