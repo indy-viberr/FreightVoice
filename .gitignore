@@ -9,3 +9,18 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# InsForge & AI agent skills
+.insforge
+.agent
+.agents
+.augment
+.claude
+.cline
+.github/copilot*
+.kilocode
+.qoder
+.qwen
+.roo
+.trae
+.windsurf
