@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FreightVoice Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #151922;
+      --card: #1c1f26;
+      --card-2: #222733;
+      --text: #f4f7fb;
+      --muted: #a9b2c3;
+      --line: #333a47;
+      --pending: #777f8d;
+      --delivered: #2f80ed;
+      --invoiced: #25a55f;
+      --flagged: #d94a4a;
+      --warning: #d99a24;
+      --info: #3697d8;
+      --critical: #d94a4a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background: var(--bg);
+      font: 16px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 22px 28px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #121620;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 750;
+      letter-spacing: 0;
+    }
+
+    .timestamp {
+      color: var(--muted);
+      font-size: 16px;
+      white-space: nowrap;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      padding: 18px;
+    }
+
+    section {
+      min-width: 0;
+      padding: 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    section h2 {
+      margin-bottom: 14px;
+      color: #dfe6f3;
+      font-size: 18px;
+      font-weight: 720;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .item {
+      padding: 14px;
+      background: var(--card);
+      border: 1px solid #2e3541;
+      border-radius: 8px;
+    }
+
+    .item-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .load-id {
+      font-size: 22px;
+      font-weight: 760;
+      letter-spacing: 0;
+      word-break: break-word;
+    }
+
+    .title {
+      font-size: 18px;
+      font-weight: 720;
+      word-break: break-word;
+    }
+
+    .meta {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+    }
+
+    .meta strong {
+      color: var(--text);
+      font-weight: 680;
+    }
+
+    .badge {
+      flex: 0 0 auto;
+      min-width: 86px;
+      padding: 5px 8px;
+      color: #fff;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 800;
+      text-align: center;
+      text-transform: uppercase;
+      transition: background-color 180ms ease;
+    }
+
+    .pending { background: var(--pending); }
+    .delivered { background: var(--delivered); }
+    .invoiced { background: var(--invoiced); }
+    .flagged { background: var(--flagged); }
+    .info { background: var(--info); }
+    .warning { background: var(--warning); color: #15110a; }
+    .critical { background: var(--critical); }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .chip {
+      padding: 5px 8px;
+      background: var(--card-2);
+      border: 1px solid #3a4352;
+      border-radius: 6px;
+      color: #dfe6f3;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .detail {
+      margin-top: 10px;
+      padding: 10px;
+      background: #141822;
+      border: 1px solid #2a3140;
+      border-radius: 6px;
+      color: #c8d1df;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }
+
+    .empty {
+      padding: 18px;
+      color: var(--muted);
+      background: var(--card);
+      border: 1px dashed #3a4352;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    @media (max-width: 1050px) {
+      .board {
+        grid-template-columns: 1fr;
+      }
+
+      header {
+        align-items: start;
+        flex-direction: column;
+      }
+
+      .timestamp {
+        white-space: normal;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>FreightVoice</h1>
+    <p class="timestamp" id="last-updated">Waiting for state...</p>
+  </header>
+
+  <main class="board">
+    <section>
+      <h2>Loads</h2>
+      <div class="list" id="loads"></div>
+    </section>
+
+    <section>
+      <h2>PODs Captured</h2>
+      <div class="list" id="pods"></div>
+    </section>
+
+    <section>
+      <h2>Discrepancy Queue</h2>
+      <div class="list" id="discrepancies"></div>
+    </section>
+  </main>
+
+  <script>
+    const stateUrl = "/state";
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function formatDate(value) {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return escapeHtml(value);
+      return date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    }
+
+    function statusBadge(status) {
+      const normalized = String(status || "pending").toLowerCase();
+      return `<span class="badge ${escapeHtml(normalized)}">${escapeHtml(normalized)}</span>`;
+    }
+
+    function renderLoads(loads) {
+      const target = document.getElementById("loads");
+      if (!loads.length) {
+        target.innerHTML = `<div class="empty">No loads</div>`;
+        return;
+      }
+      target.innerHTML = loads.map((load) => {
+        const status = load.display_status || load.status;
+        return `
+          <article class="item">
+            <div class="item-head">
+              <h3 class="load-id">${escapeHtml(load.load_id)}</h3>
+              ${statusBadge(status)}
+            </div>
+            <div class="meta">
+              <p><strong>${escapeHtml(load.consignee)}</strong></p>
+              <p>${escapeHtml(load.commodity)} from ${escapeHtml(load.origin_city)} to ${escapeHtml(load.destination_city)}</p>
+              <p>Scheduled ${formatDate(load.scheduled_delivery)}</p>
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function accessorialChip(item) {
+      const label = String(item.type || "").replaceAll("_", " ");
+      if (item.duration_minutes) {
+        const hours = Math.floor(item.duration_minutes / 60);
+        const minutes = item.duration_minutes % 60;
+        const duration = hours && minutes ? `${hours}h${minutes}m` : hours ? `${hours}h` : `${minutes}m`;
+        return `${label} - ${duration}`;
+      }
+      if (item.amount_usd) {
+        return `${label} - $${Number(item.amount_usd).toFixed(2)}`;
+      }
+      return label;
+    }
+
+    function renderPods(pods) {
+      const target = document.getElementById("pods");
+      if (!pods.length) {
+        target.innerHTML = `<div class="empty">No PODs</div>`;
+        return;
+      }
+      target.innerHTML = pods.map((pod) => {
+        const chips = (pod.accessorials || []).map((item) => `<span class="chip">${escapeHtml(accessorialChip(item))}</span>`).join("");
+        return `
+          <article class="item">
+            <div class="item-head">
+              <h3 class="title">${escapeHtml(pod.load_id)}</h3>
+              ${statusBadge(pod.damage ? "flagged" : "delivered")}
+            </div>
+            <div class="meta">
+              <p>Delivered ${formatDate(pod.delivered_at)} to <strong>${escapeHtml(pod.recipient_name)}</strong></p>
+              <p>${escapeHtml(pod.actual_pieces)} pieces, ${Number(pod.actual_weight_lbs).toLocaleString()} lbs</p>
+              <p>Damage: <strong>${pod.damage ? "Y" : "N"}</strong></p>
+              <p>${escapeHtml(pod.readback_summary)}</p>
+            </div>
+            ${chips ? `<div class="chips">${chips}</div>` : ""}
+          </article>
+        `;
+      }).join("");
+    }
+
+    function renderDiscrepancies(discrepancies) {
+      const target = document.getElementById("discrepancies");
+      const unresolved = discrepancies.filter((item) => !item.resolved);
+      if (!unresolved.length) {
+        target.innerHTML = `<div class="empty">Queue clear</div>`;
+        return;
+      }
+      target.innerHTML = unresolved.map((item) => {
+        const detail = Object.entries(item.detail || {})
+          .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+          .join("\n");
+        return `
+          <article class="item">
+            <div class="item-head">
+              <h3 class="title">${escapeHtml(item.trigger)}</h3>
+              ${statusBadge(item.severity)}
+            </div>
+            <div class="meta">
+              <p><strong>${escapeHtml(item.load_id)}</strong></p>
+              <p>${escapeHtml(item.message)}</p>
+              ${item.transcript_excerpt ? `<p>${escapeHtml(item.transcript_excerpt)}</p>` : ""}
+            </div>
+            ${detail ? `<pre class="detail">${escapeHtml(detail)}</pre>` : ""}
+          </article>
+        `;
+      }).join("");
+    }
+
+    async function refresh() {
+      const response = await fetch(stateUrl);
+      const data = await response.json();
+      renderLoads(data.loads || []);
+      renderPods(data.pods || []);
+      renderDiscrepancies(data.discrepancies || []);
+      document.getElementById("last-updated").textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
+    }
+
+    refresh().catch(() => {
+      document.getElementById("last-updated").textContent = "State unavailable";
+    });
+    setInterval(() => refresh().catch(() => {}), 2000);
+  </script>
+</body>
+</html>
+

@@ -1,26 +1,63 @@
-"""Runtime configuration for FreightVoice, all via environment variables.
-
-Nothing here is carrier-specific beyond *which* adapter to instantiate — that is
-the entire switch-to-production story: set ``FREIGHTVOICE_TMS=samsara`` and
-provide the credential, implement the adapter, done.
-"""
-
 from __future__ import annotations
 
 import os
 
+from dotenv import load_dotenv
+from pydantic import BaseModel, ConfigDict, field_validator
 
-# Which TMS adapter to use: fake | samsara | motive | rts
-TMS_BACKEND = os.environ.get("FREIGHTVOICE_TMS", "fake").lower()
 
-# Where the fake TMS lives (only used by FakeTMSAdapter).
-FAKETMS_URL = os.environ.get("FAKETMS_URL", "http://127.0.0.1:5001")
+class Config(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-# Weight variance tolerance, percent. Mirrors validation.DiscrepancyConfig.
-WEIGHT_TOLERANCE_PCT = float(os.environ.get("FREIGHTVOICE_WEIGHT_TOLERANCE_PCT", "5"))
+    FREIGHTVOICE_PORT: int = 5000
+    FAKETMS_PORT: int = 5001
+    FAKETMS_URL: str = "http://localhost:5001"
+    FREIGHTVOICE_TMS: str = "fake"
+    FREIGHTVOICE_FACTORING: str = "fake"
+    VAPI_AUTH_TOKEN: str = ""
+    NEBIUS_API_KEY: str = ""
+    WEIGHT_VARIANCE_PCT: float = 5.0
+    PIECE_VARIANCE_ALLOW: int = 0
+    WEBHOOK_SECRET: str = ""
+    AUTO_INVOICE_BELOW_SEVERITY: str = "warning"
+    FAKETMS_DATABASE_URL: str = "sqlite:///faketms.sqlite3"
 
-# Whether to fire the factoring advance on a clean delivery.
-FACTORING_ENABLED = os.environ.get("FREIGHTVOICE_FACTORING", "fake").lower() != "off"
+    @field_validator("FREIGHTVOICE_TMS")
+    @classmethod
+    def validate_tms(cls, value: str) -> str:
+        if value not in {"fake", "samsara", "motive"}:
+            raise ValueError("FREIGHTVOICE_TMS must be fake, samsara, or motive")
+        return value
 
-# Outbound HTTP timeout (seconds) for service-to-service calls.
-HTTP_TIMEOUT = float(os.environ.get("FREIGHTVOICE_HTTP_TIMEOUT", "5"))
+    @field_validator("FREIGHTVOICE_FACTORING")
+    @classmethod
+    def validate_factoring(cls, value: str) -> str:
+        if value not in {"fake", "rts"}:
+            raise ValueError("FREIGHTVOICE_FACTORING must be fake or rts")
+        return value
+
+    @field_validator("AUTO_INVOICE_BELOW_SEVERITY")
+    @classmethod
+    def validate_auto_invoice_severity(cls, value: str) -> str:
+        if value not in {"info", "warning", "critical"}:
+            raise ValueError("AUTO_INVOICE_BELOW_SEVERITY must be info, warning, or critical")
+        return value
+
+    @classmethod
+    def from_env(cls, override: dict[str, object] | None = None) -> "Config":
+        load_dotenv()
+        values: dict[str, object] = {}
+        for name, field_info in cls.model_fields.items():
+            raw = os.getenv(name)
+            if raw is None:
+                continue
+            annotation = field_info.annotation
+            if annotation is int:
+                values[name] = int(raw)
+            elif annotation is float:
+                values[name] = float(raw)
+            else:
+                values[name] = raw
+        if override:
+            values.update(override)
+        return cls(**values)

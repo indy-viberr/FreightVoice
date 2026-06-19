@@ -1,0 +1,2 @@
+"""FreightVoice webhook middleware."""
+

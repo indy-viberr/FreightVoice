@@ -1,88 +1,92 @@
-"""
-End-to-end: the three seeded loads through push_delivery_record.
-
-Asserts the full demo narrative:
-  L1001 clean      -> invoiced, no discrepancies
-  L2002 weight     -> flagged, NOT invoiced
-  L3003 damage+exc -> flagged, NOT invoiced
-"""
-
 from __future__ import annotations
 
-import requests
+from collections.abc import Callable
+from typing import Any
 
-from tests.test_webhooks import first_result, vapi_envelope
-
-
-def _push(client, args):
-    return client.post("/webhook/push_delivery_record",
-                       json=vapi_envelope("e2e", "push_delivery_record", args))
+from tests.conftest import vapi_envelope
 
 
-def _load(state, load_id):
-    return next(l for l in state["loads"] if l["load_id"] == load_id)
+def post_tool(client: Any, path: str, tool_id: str, name: str, args: dict[str, Any]) -> str:
+    response = client.post(path, json=vapi_envelope(tool_id, name, args))
+    assert response.status_code == 200
+    return response.get_json()["results"][0]["result"]
 
 
-def test_seeded_loads_drive_three_paths(client, faketms_server):
-    # --- L1001: clean -> invoiced -------------------------------------- #
-    _push(client, {
-        "load_id": "L1001", "delivered_at": "2026-06-19T14:32:00",
-        "recipient_name": "J. Rivera", "actual_pieces": 20, "actual_weight_lbs": 18000,
-    })
-
-    # --- L2002: weight variance -> flagged, held ----------------------- #
-    # Expected 14000 lbs; report 12200 (~12.9% under) => warning.
-    _push(client, {
-        "load_id": "L2002", "delivered_at": "2026-06-19T09:40:00",
-        "recipient_name": "M. Chen", "actual_pieces": 16, "actual_weight_lbs": 12200,
-    })
-
-    # --- L3003: damage + exception -> flagged, held -------------------- #
-    _push(client, {
-        "load_id": "L3003", "delivered_at": "2026-06-19T11:15:00",
-        "recipient_name": "Yard Supervisor", "actual_pieces": 8, "actual_weight_lbs": 42000,
-        "damage": True, "damage_notes": "two beams bent", "exception_type": "refused",
-        "transcript_excerpt": "they wouldn't take the bent ones",
-    })
-
-    state = requests.get(f"{faketms_server}/state").json()
-
-    # L1001 clean -> invoiced
-    assert _load(state, "L1001")["status"] == "invoiced"
-    assert not [d for d in state["discrepancies"] if d["load_id"] == "L1001"]
-
-    # L2002 flagged + held at delivered (not invoiced)
-    l2002 = _load(state, "L2002")
-    assert l2002["status"] == "delivered"
-    assert l2002["invoice_number"] is None
-    d2002 = [d for d in state["discrepancies"] if d["load_id"] == "L2002"]
-    assert {d["code"] for d in d2002} == {"weight_variance"}
-
-    # L3003 flagged (damage + exception) + held
-    l3003 = _load(state, "L3003")
-    assert l3003["status"] == "delivered"
-    assert l3003["invoice_number"] is None
-    codes = {d["code"] for d in state["discrepancies"] if d["load_id"] == "L3003"}
-    assert "damage" in codes and "exception" in codes
-    # Severity stays specific per trigger.
-    sev = {d["code"]: d["severity"]
-           for d in state["discrepancies"] if d["load_id"] == "L3003"}
-    assert sev["damage"] == "critical"
+def test_e2e_clean_load(client: Any, fake_tms_state: Callable[[], dict[str, Any]]) -> None:
+    post_tool(client, "/webhook/get_load_context", "tc_e2e_001_get", "get_load_context", {"load_id": "FV-DEMO-001"})
+    post_tool(
+        client,
+        "/webhook/push_delivery_record",
+        "tc_e2e_001_push",
+        "push_delivery_record",
+        {
+            "load_id": "FV-DEMO-001",
+            "delivered_at": "2026-06-19T20:14:00Z",
+            "recipient_name": "Jane Smith",
+            "actual_pieces": 24,
+            "actual_weight_lbs": 18400,
+            "damage": False,
+            "accessorials": [],
+        },
+    )
+    state = fake_tms_state()
+    load = next(item for item in state["loads"] if item["load_id"] == "FV-DEMO-001")
+    assert load["status"] == "invoiced"
+    assert len(state["pods"]) == 1
+    assert state["discrepancies"] == []
 
 
-def test_every_pushed_load_has_a_pod_with_readback(client, faketms_server):
-    for args in (
-        {"load_id": "L1001", "delivered_at": "2026-06-19T14:32:00",
-         "recipient_name": "J. Rivera", "actual_pieces": 20, "actual_weight_lbs": 18000},
-        {"load_id": "L2002", "delivered_at": "2026-06-19T09:40:00",
-         "recipient_name": "M. Chen", "actual_pieces": 16, "actual_weight_lbs": 12200},
-    ):
-        r = first_result(_push(client, args).get_json())
-        assert r["result"]  # a spoken readback string came back
+def test_e2e_weight_variance(client: Any, fake_tms_state: Callable[[], dict[str, Any]]) -> None:
+    post_tool(client, "/webhook/get_load_context", "tc_e2e_002_get", "get_load_context", {"load_id": "FV-DEMO-002"})
+    post_tool(
+        client,
+        "/webhook/push_delivery_record",
+        "tc_e2e_002_push",
+        "push_delivery_record",
+        {
+            "load_id": "FV-DEMO-002",
+            "delivered_at": "2026-06-19T20:30:00Z",
+            "recipient_name": "Sam Carter",
+            "actual_pieces": 12,
+            "actual_weight_lbs": 11500,
+            "damage": False,
+            "accessorials": [],
+            "transcript_excerpt": "Driver confirmed 11,500 pounds on the scale ticket.",
+        },
+    )
+    state = fake_tms_state()
+    load = next(item for item in state["loads"] if item["load_id"] == "FV-DEMO-002")
+    assert load["status"] == "delivered"
+    assert state["invoices"] == []
+    assert state["discrepancies"][0]["trigger"] == "weight_variance"
+    assert state["discrepancies"][0]["severity"] == "critical"
 
-    state = requests.get(f"{faketms_server}/state").json()
-    pods_by_load = {p["load_id"]: p for p in state["pods"]}
-    assert pods_by_load["L1001"]["readback"]
-    assert pods_by_load["L1001"]["clean"] is True
-    assert pods_by_load["L2002"]["readback"]
-    assert pods_by_load["L2002"]["clean"] is False
+
+def test_e2e_damage_with_accessorial(client: Any, fake_tms_state: Callable[[], dict[str, Any]]) -> None:
+    post_tool(client, "/webhook/get_load_context", "tc_e2e_003_get", "get_load_context", {"load_id": "FV-DEMO-003"})
+    post_tool(
+        client,
+        "/webhook/push_delivery_record",
+        "tc_e2e_003_push",
+        "push_delivery_record",
+        {
+            "load_id": "FV-DEMO-003",
+            "delivered_at": "2026-06-19T21:45:00Z",
+            "recipient_name": "Bob Martinez",
+            "actual_pieces": 36,
+            "actual_weight_lbs": 27000,
+            "damage": True,
+            "damage_notes": "3 pallets on NE corner of trailer showed forklift puncture.",
+            "accessorials": [
+                {"type": "detention", "duration_minutes": 135, "notes": "Arrived 14:00, unloading started 16:15"}
+            ],
+            "exception_type": "damage",
+        },
+    )
+    state = fake_tms_state()
+    assert state["invoices"] == []
+    assert state["discrepancies"][0]["trigger"] == "damage_reported"
+    assert state["discrepancies"][0]["severity"] == "critical"
+    assert state["pods"][0]["accessorials"][0]["type"] == "detention"
+    assert state["pods"][0]["accessorials"][0]["duration_minutes"] == 135
+

@@ -1,156 +1,152 @@
-"""
-FreightVoice canonical schemas.
-
-These pydantic models are the contract between the voice agent (Vapi) and the
-carrier's TMS. They are deliberately strict: an LLM produces tool-call arguments
-and we will not let a hallucinated field or an invented accessorial type flow
-through to a real invoice. Validation errors are surfaced back to the agent so
-it can re-ask the driver rather than guessing.
-
-Three models matter:
-
-* ``LoadContext``    — what the TMS knows about a load *before* the call. The
-                       agent confirms these facts with the driver; it never
-                       dictates them.
-* ``AccessorialEvent`` — a billable extra (detention, liftgate, ...). The
-                       ``type`` is a closed enum; unknown types are rejected.
-* ``DeliveryRecord`` — what the driver reported *after* the call. This is the
-                       payload that the discrepancy engine inspects and, if
-                       clean, that triggers invoicing.
-"""
-
 from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class _Strict(BaseModel):
-    """Base for every model: reject unknown fields, validate on assignment.
-
-    ``extra="forbid"`` is what makes "reject unknown accessorial types" and
-    "reject typo'd fields" work — pydantic raises instead of silently dropping.
-    """
-
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+class StrictBaseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 class EquipmentType(str, Enum):
-    dry_van = "dry_van"
-    reefer = "reefer"
-    flatbed = "flatbed"
-    step_deck = "step_deck"
-    box_truck = "box_truck"
-    power_only = "power_only"
+    DRY_VAN = "dry_van"
+    REEFER = "reefer"
+    FLATBED = "flatbed"
+    STEP_DECK = "step_deck"
+    TANKER = "tanker"
+    LTL = "ltl"
+    OTHER = "other"
 
 
 class AccessorialType(str, Enum):
-    """Closed set of billable extras. Anything outside this set is rejected.
-
-    Names mirror common freight-billing line items so the readback the agent
-    speaks matches what the carrier's AP team expects to see.
-    """
-
-    detention = "detention"
-    liftgate = "liftgate"
-    lumper = "lumper"
-    residential = "residential"
-    inside_delivery = "inside_delivery"
-    layover = "layover"
-    tonu = "tonu"  # truck-ordered-not-used
+    DETENTION = "detention"
+    LIFTGATE = "liftgate"
+    LUMPER = "lumper"
+    RESIDENTIAL = "residential"
+    INSIDE_DELIVERY = "inside_delivery"
+    LAYOVER = "layover"
+    TONU = "tonu"
+    REDELIVERY = "redelivery"
 
 
 class ExceptionType(str, Enum):
-    """Delivery exceptions that, by themselves, should block a clean invoice."""
-
-    refused = "refused"
-    short = "short"
-    redelivery = "redelivery"
-    damaged = "damaged"
-    overage = "overage"
+    REFUSED = "refused"
+    SHORT = "short"
+    DAMAGE = "damage"
+    REDELIVERY = "redelivery"
+    OVERAGE = "overage"
 
 
-# --------------------------------------------------------------------------- #
-# Load context (TMS -> agent)
-# --------------------------------------------------------------------------- #
-class LoadContext(_Strict):
-    """The pre-delivery facts about a load, pulled from the TMS.
+class DiscrepancySeverity(str, Enum):
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
 
-    Returned by ``get_load_context`` so the agent can confirm-not-dictate:
-    it reads the consignee/commodity/expected counts to the driver and asks
-    yes/no questions rather than open-ended ones.
-    """
 
-    load_id: str = Field(..., min_length=1, description="Carrier load id / PRO number")
-    shipper: str = Field(..., min_length=1)
-    consignee: str = Field(..., min_length=1)
-    commodity: str = Field(..., min_length=1)
-    expected_pieces: int = Field(..., ge=0)
-    expected_weight_lbs: float = Field(..., ge=0)
+class LoadContext(StrictBaseModel):
+    """Returned by get_load_context webhook; spoken back by agent to confirm."""
+
+    load_id: str
+    pro_number: str | None = None
+    shipper: str
+    consignee: str
+    origin_city: str
+    destination_city: str
+    commodity: str
+    expected_pieces: int
+    expected_weight_lbs: float
     scheduled_delivery: datetime
     equipment_type: EquipmentType
-
-
-# --------------------------------------------------------------------------- #
-# Accessorial (agent -> TMS, nested in DeliveryRecord)
-# --------------------------------------------------------------------------- #
-class AccessorialEvent(_Strict):
-    """A single billable extra captured during the call.
-
-    ``duration_minutes`` and ``amount_usd`` are both optional because the driver
-    often knows one but not the other (e.g. "I waited two hours" with no dollar
-    figure). The carrier's rate engine fills the rest; we only capture what the
-    driver actually said.
-    """
-
-    type: AccessorialType
-    duration_minutes: int | None = Field(default=None, ge=0)
-    amount_usd: float | None = Field(default=None, ge=0)
     notes: str | None = None
 
 
-# --------------------------------------------------------------------------- #
-# Delivery record (agent -> TMS)
-# --------------------------------------------------------------------------- #
-class DeliveryRecord(_Strict):
-    """The completed proof-of-delivery as reported by the driver on the call.
+class AccessorialEvent(StrictBaseModel):
+    """One accessorial service performed during the delivery."""
 
-    This is the discrepancy engine's input. ``actual_pieces`` /
-    ``actual_weight_lbs`` are compared against the load's expected values;
-    ``damage`` / ``exception_type`` / ``recipient_name`` each independently
-    decide whether the record can auto-invoice.
-    """
+    type: AccessorialType
+    duration_minutes: int | None = None
+    amount_usd: float | None = None
+    notes: str | None = None
 
-    load_id: str = Field(..., min_length=1)
+    @model_validator(mode="after")
+    def validate_required_fields(self) -> "AccessorialEvent":
+        if self.type in {AccessorialType.DETENTION, AccessorialType.LAYOVER} and self.duration_minutes is None:
+            raise ValueError(f"{self.type.value} requires duration_minutes")
+        if self.type == AccessorialType.LUMPER and self.amount_usd is None:
+            raise ValueError("lumper requires amount_usd")
+        return self
+
+
+class DeliveryRecord(StrictBaseModel):
+    """Full post-delivery capture; pushed by push_delivery_record webhook."""
+
+    load_id: str
     delivered_at: datetime
-    recipient_name: str | None = Field(
-        default=None,
-        description="Who signed for it. Absent => no clean POD => flag.",
-    )
-    actual_pieces: int = Field(..., ge=0)
-    actual_weight_lbs: float = Field(..., ge=0)
-    damage: bool = False
+    recipient_name: str
+    actual_pieces: int
+    actual_weight_lbs: float
+    damage: bool
     damage_notes: str | None = None
     accessorials: list[AccessorialEvent] = Field(default_factory=list)
     exception_type: ExceptionType | None = None
-    transcript_excerpt: str | None = Field(
-        default=None,
-        description="Short verbatim snippet for the discrepancy queue / audit.",
-    )
+    transcript_excerpt: str | None = None
 
-    @field_validator("recipient_name")
-    @classmethod
-    def _blank_name_is_none(cls, v: str | None) -> str | None:
-        """Treat a whitespace-only recipient as missing.
+    @model_validator(mode="after")
+    def damage_notes_required(self) -> "DeliveryRecord":
+        if self.damage and not self.damage_notes:
+            raise ValueError("damage_notes required when damage is True")
+        return self
 
-        The agent may pass an empty string when the driver mumbled a name it
-        couldn't parse. Normalize to ``None`` so the discrepancy engine's
-        "missing recipient" trigger fires consistently instead of passing a
-        blank string through to the POD.
-        """
-        if v is None:
-            return None
-        v = v.strip()
-        return v or None
+
+class Discrepancy(StrictBaseModel):
+    """One specific problem found by the validation engine."""
+
+    trigger: str
+    severity: DiscrepancySeverity
+    message: str
+    detail: dict[str, Any] = Field(default_factory=dict)
+
+
+class ValidationResult(StrictBaseModel):
+    """Output of the discrepancy engine."""
+
+    load_id: str
+    is_clean: bool
+    discrepancies: list[Discrepancy]
+
+
+class VapiToolCallFunction(StrictBaseModel):
+    name: str
+    arguments: dict[str, Any]
+
+
+class VapiToolCall(StrictBaseModel):
+    id: str
+    type: Literal["function"]
+    function: VapiToolCallFunction
+
+
+class VapiToolCallRequest(StrictBaseModel):
+    """Inbound webhook body from Vapi server-tool calls.
+
+    The current documented shape wraps tool calls in message.toolCalls:
+    https://docs.vapi.ai/server-url/events#tool-calls
+    """
+
+    message: dict[str, Any]
+
+    def get_tool_calls(self) -> list[VapiToolCall]:
+        return [VapiToolCall(**tool_call) for tool_call in self.message.get("toolCalls", [])]
+
+
+class VapiToolResult(StrictBaseModel):
+    toolCallId: str
+    result: str
+
+
+class VapiToolCallResponse(StrictBaseModel):
+    results: list[VapiToolResult]
+

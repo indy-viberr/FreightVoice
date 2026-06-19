@@ -1,152 +1,136 @@
-#!/usr/bin/env python3
-"""
-Simulate the phone call without a phone.
-
-Posts realistic Vapi server-tool payloads to the running FreightVoice service
-for each of the three seeded loads, printing the agent's spoken readback at every
-step. This is:
-
-  * the fallback if live telephony flakes on stage, and
-  * the thing you screen-record for the Twitter clip.
-
-Run (both services must be up — `make demo` or `./run.sh`):
-    python demo/simulate_call.py
-    python demo/simulate_call.py --base-url http://127.0.0.1:5000
-"""
-
 from __future__ import annotations
 
-import argparse
 import json
-import sys
+import os
 import time
 
 import requests
 
-# Each scenario maps to one seeded load and one discrepancy path.
-SCENARIOS = [
-    {
-        "title": "Load L1001 — clean delivery",
-        "load_id": "L1001",
-        "record": {
-            "load_id": "L1001",
-            "delivered_at": "2026-06-19T14:32:00",
-            "recipient_name": "J. Rivera",
-            "actual_pieces": 20,
-            "actual_weight_lbs": 18000,
-            "accessorials": [{"type": "liftgate"}],
-            "transcript_excerpt": "all twenty on the dock, Rivera signed",
-        },
-    },
-    {
-        "title": "Load L2002 — weight variance (held for review)",
-        "load_id": "L2002",
-        "record": {
-            "load_id": "L2002",
-            "delivered_at": "2026-06-19T09:40:00",
-            "recipient_name": "M. Chen",
-            "actual_pieces": 16,
-            "actual_weight_lbs": 12200,
-            "accessorials": [{"type": "detention", "duration_minutes": 95}],
-            "transcript_excerpt": "scale read way under what the BOL said",
-        },
-    },
-    {
-        "title": "Load L3003 — damage + refused (held for review)",
-        "load_id": "L3003",
-        "record": {
-            "load_id": "L3003",
-            "delivered_at": "2026-06-19T11:15:00",
-            "recipient_name": "Yard Supervisor",
-            "actual_pieces": 8,
-            "actual_weight_lbs": 42000,
-            "damage": True,
-            "damage_notes": "two beams bent in transit",
-            "exception_type": "refused",
-            "transcript_excerpt": "they wouldn't take the bent ones",
-        },
-    },
-]
+
+BASE_URL = os.getenv("FREIGHTVOICE_URL", "http://localhost:5000").rstrip("/")
 
 
-# --- pretty terminal output ---------------------------------------------- #
-class C:
-    RESET = "\033[0m"
-    BOLD = "\033[1m"
-    DIM = "\033[2m"
-    CYAN = "\033[36m"
-    GREEN = "\033[32m"
-    YELLOW = "\033[33m"
-    BLUE = "\033[34m"
-
-
-def _vapi_body(tool_name: str, args: dict) -> dict:
+def vapi_envelope(tool_call_id: str, name: str, arguments: dict[str, object]) -> dict[str, object]:
     return {
         "message": {
             "type": "tool-calls",
             "toolCalls": [
                 {
-                    "id": f"call_{tool_name}_{int(time.time()*1000) % 100000}",
+                    "id": tool_call_id,
                     "type": "function",
-                    "function": {"name": tool_name, "arguments": args},
+                    "function": {"name": name, "arguments": arguments},
                 }
             ],
         }
     }
 
 
-def _call(base_url: str, tool_name: str, args: dict) -> str:
-    resp = requests.post(f"{base_url}/webhook/{tool_name}",
-                         json=_vapi_body(tool_name, args), timeout=10)
-    resp.raise_for_status()
-    return resp.json()["results"][0]["result"]
+def post_tool(endpoint: str, tool_call_id: str, name: str, arguments: dict[str, object]) -> str:
+    response = requests.post(
+        f"{BASE_URL}{endpoint}",
+        json=vapi_envelope(tool_call_id, name, arguments),
+        timeout=10,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    return str(payload["results"][0]["result"])
 
 
-def run(base_url: str) -> int:
-    try:
-        requests.get(f"{base_url}/health", timeout=3).raise_for_status()
-    except requests.RequestException:
-        print(f"{C.YELLOW}FreightVoice not reachable at {base_url}. "
-              f"Start it first (make demo / ./run.sh).{C.RESET}")
-        return 1
+def print_header(title: str) -> None:
+    line = "=" * 58
+    print(f"\n{line}\n {title}\n{line}")
 
-    print(f"\n{C.BOLD}FreightVoice — simulated post-delivery calls{C.RESET}")
-    print(f"{C.DIM}Posting Vapi-shaped tool calls to {base_url}{C.RESET}\n")
 
-    for sc in SCENARIOS:
-        print(f"{C.BOLD}{C.BLUE}▶ {sc['title']}{C.RESET}")
+def print_call(endpoint: str, payload: dict[str, object]) -> None:
+    print(f"[->] {endpoint} {json.dumps(payload, indent=2)}")
 
-        # 1. Agent pulls context to confirm-not-dictate.
-        ctx_raw = _call(base_url, "get_load_context", {"load_id": sc["load_id"]})
-        ctx = json.loads(ctx_raw)
-        if ctx.get("found"):
-            load = ctx["load"]
-            print(f"  {C.CYAN}get_load_context{C.RESET}  "
-                  f"{load['shipper']} → {load['consignee']}, "
-                  f"{load['expected_pieces']} pcs / {load['expected_weight_lbs']:.0f} lbs "
-                  f"({load['commodity']})")
+
+def current_status(load_id: str) -> tuple[str, int]:
+    response = requests.get(f"{BASE_URL}/state", timeout=10)
+    response.raise_for_status()
+    state = response.json()
+    load = next(item for item in state["loads"] if item["load_id"] == load_id)
+    discrepancy_count = len([item for item in state["discrepancies"] if item["load_id"] == load_id])
+    return str(load["status"]), discrepancy_count
+
+
+def main() -> None:
+    scenarios: list[dict[str, object]] = [
+        {
+            "title": "SCENARIO 1: Clean Run - FV-DEMO-001",
+            "load_id": "FV-DEMO-001",
+            "push": {
+                "load_id": "FV-DEMO-001",
+                "delivered_at": "2026-06-19T20:14:00Z",
+                "recipient_name": "Jane Smith",
+                "actual_pieces": 24,
+                "actual_weight_lbs": 18400,
+                "damage": False,
+                "accessorials": [],
+            },
+        },
+        {
+            "title": "SCENARIO 2: Weight Variance - FV-DEMO-002",
+            "load_id": "FV-DEMO-002",
+            "push": {
+                "load_id": "FV-DEMO-002",
+                "delivered_at": "2026-06-19T20:30:00Z",
+                "recipient_name": "Sam Carter",
+                "actual_pieces": 12,
+                "actual_weight_lbs": 11500,
+                "damage": False,
+                "accessorials": [],
+                "transcript_excerpt": "Driver confirmed 11,500 pounds on the scale ticket.",
+            },
+        },
+        {
+            "title": "SCENARIO 3: Damage + Detention - FV-DEMO-003",
+            "load_id": "FV-DEMO-003",
+            "push": {
+                "load_id": "FV-DEMO-003",
+                "delivered_at": "2026-06-19T21:45:00Z",
+                "recipient_name": "Bob Martinez",
+                "actual_pieces": 36,
+                "actual_weight_lbs": 27000,
+                "damage": True,
+                "damage_notes": "3 pallets on NE corner of trailer showed forklift puncture. Photos submitted via SMS.",
+                "accessorials": [
+                    {"type": "detention", "duration_minutes": 135, "notes": "Arrived 14:00, unloading started 16:15"}
+                ],
+                "exception_type": "damage",
+            },
+        },
+    ]
+
+    for index, scenario in enumerate(scenarios, start=1):
+        load_id = str(scenario["load_id"])
+        print_header(str(scenario["title"]))
+
+        get_args = {"load_id": load_id}
+        print_call("get_load_context", get_args)
+        spoken = post_tool("/webhook/get_load_context", f"tc_demo_{index:03d}_get", "get_load_context", get_args)
+        print(f'[AGENT] "{spoken}"')
+
+        time.sleep(2)
+
+        push_args = scenario["push"]
+        if not isinstance(push_args, dict):
+            raise TypeError("scenario push payload must be a dict")
+        print_call("push_delivery_record", push_args)
+        spoken = post_tool("/webhook/push_delivery_record", f"tc_demo_{index:03d}_push", "push_delivery_record", push_args)
+        print(f'[AGENT] "{spoken}"')
+
+        status, discrepancy_count = current_status(load_id)
+        if status == "invoiced":
+            print("[OK] Invoice triggered. Clean record.")
+        elif discrepancy_count:
+            print(f"[OK] Dispatcher review queued. Discrepancies: {discrepancy_count}.")
         else:
-            print(f"  {C.YELLOW}get_load_context{C.RESET}  {ctx.get('message')}")
+            print(f"[OK] Load status: {status}.")
 
-        # 2. Agent pushes the completed delivery record.
-        readback = _call(base_url, "push_delivery_record", sc["record"])
-        clean = "billing" in readback.lower()
-        tag = f"{C.GREEN}CLEAN → INVOICED{C.RESET}" if clean else f"{C.YELLOW}HELD FOR REVIEW{C.RESET}"
-        print(f"  {C.CYAN}push_delivery_record{C.RESET}  {tag}")
-        print(f"  {C.DIM}agent says:{C.RESET} “{readback}”\n")
-        time.sleep(0.4)
-
-    print(f"{C.DIM}Open the dashboard at {base_url}/ to see loads, PODs and the "
-          f"discrepancy queue update live.{C.RESET}\n")
-    return 0
-
-
-def main() -> int:
-    ap = argparse.ArgumentParser(description="Simulate FreightVoice post-delivery calls.")
-    ap.add_argument("--base-url", default="http://127.0.0.1:5000")
-    args = ap.parse_args()
-    return run(args.base_url)
+        time.sleep(2)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
+

@@ -1,54 +1,81 @@
-"""
-Test harness.
-
-The webhook/e2e tests exercise the *real* path: freightvoice -> FakeTMSAdapter ->
-faketms over HTTP. To keep that honest while staying localhost-only, we boot the
-faketms Flask app on an ephemeral port in a background thread, point
-``config.FAKETMS_URL`` at it, then drive freightvoice through its Flask test
-client.
-"""
-
 from __future__ import annotations
 
-import socket
-import threading
+from collections.abc import Callable, Generator
+from threading import Thread
+from typing import Any
 
 import pytest
+import requests
+from flask import Flask
 from werkzeug.serving import make_server
 
-from faketms.app import create_app as create_faketms
-from freightvoice import config, store
+from faketms.app import create_app as create_faketms_app
+from freightvoice.app import create_app as create_freightvoice_app
 
 
-def _free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+@pytest.fixture
+def fake_tms_app(tmp_path: Any) -> Flask:
+    return create_faketms_app({"DATABASE_URL": f"sqlite:///{tmp_path / 'faketms-direct.sqlite3'}"})
 
 
-@pytest.fixture()
-def faketms_server():
-    """Run faketms on a real localhost port for the duration of a test."""
-    port = _free_port()
-    app = create_faketms()  # init_db(reset=True) reseeds the three demo loads
-    server = make_server("127.0.0.1", port, app, threaded=True)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+@pytest.fixture
+def fake_tms_server(tmp_path: Any) -> Generator[str, None, None]:
+    app = create_faketms_app({"DATABASE_URL": f"sqlite:///{tmp_path / 'faketms.sqlite3'}"})
+    server = make_server("127.0.0.1", 0, app)
+    thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    yield f"http://127.0.0.1:{port}"
-    server.shutdown()
-    thread.join(timeout=2)
+    url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        yield url
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
 
 
-@pytest.fixture()
-def client(faketms_server, monkeypatch):
-    """A freightvoice test client wired to the live faketms server."""
-    monkeypatch.setattr(config, "FAKETMS_URL", faketms_server)
-    store.reset()
-    # Import here so the app picks up the patched config when building adapters.
-    from freightvoice.app import create_app
+@pytest.fixture
+def app(fake_tms_server: str) -> Flask:
+    return create_freightvoice_app(
+        {
+            "TESTING": True,
+            "FAKETMS_URL": fake_tms_server,
+            "FREIGHTVOICE_TMS": "fake",
+            "FREIGHTVOICE_FACTORING": "fake",
+            "WEBHOOK_SECRET": "",
+        }
+    )
 
-    app = create_app()
-    app.testing = True
+
+@pytest.fixture
+def client(app: Flask) -> Any:
     return app.test_client()
+
+
+@pytest.fixture
+def fake_tms_state(fake_tms_server: str) -> Callable[[], dict[str, Any]]:
+    def _state() -> dict[str, Any]:
+        response = requests.get(f"{fake_tms_server}/state", timeout=5)
+        response.raise_for_status()
+        return response.json()
+
+    return _state
+
+
+@pytest.fixture
+def seeded_loads() -> list[str]:
+    return ["FV-DEMO-001", "FV-DEMO-002", "FV-DEMO-003"]
+
+
+def vapi_envelope(tool_call_id: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "message": {
+            "type": "tool-calls",
+            "toolCalls": [
+                {
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": arguments},
+                }
+            ],
+        }
+    }
+

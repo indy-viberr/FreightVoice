@@ -1,194 +1,65 @@
 # FreightVoice
 
-**Voice-captured proof of delivery for freight carriers.** A truck driver calls
-a phone number after a delivery. [Vapi](https://vapi.ai) runs the voice — speech,
-LLM, text-to-speech — and calls FreightVoice's webhooks to pull the load and push
-the completed delivery. FreightVoice validates the record, runs a discrepancy
-engine, writes the POD back to the carrier's TMS, and auto-invoices when it's
-clean. A live dashboard shows every captured POD as it lands.
+FreightVoice lets truck drivers complete post-delivery invoicing documentation with a phone call.
 
-> **The honest boundary:** everything in `freightvoice/` is the production
-> webhook path. The only mock is the carrier's TMS (`faketms/`), and that's one
-> interface away from real — implement `SamsaraAdapter` and change one env var.
-
----
-
-## 30-second quickstart
+## The Demo In 30 Seconds
 
 ```bash
-make demo        # boots fake TMS (:5001) + middleware/dashboard (:5000), seeded
+make demo
 ```
 
-Then, in a second terminal:
+Open [http://localhost:5000/dashboard](http://localhost:5000/dashboard), then run:
 
 ```bash
-open http://127.0.0.1:5000          # the dashboard (projector view)
-make simulate                       # replay the 3 seeded loads through the webhooks
+.venv/bin/python demo/simulate_call.py
 ```
 
-You'll watch three loads move **pending → delivered → invoiced** (or get **held
-for review**) on the dashboard in real time. No phone, no accounts, no paid
-services required.
+Watch the three seeded loads move through pending, delivered, invoiced, and flagged states.
+
+## Architecture Diagram
+
+```mermaid
+flowchart LR
+    Driver["Driver phone call"] --> Vapi["Vapi speech + assistant"]
+    Vapi -->|server tool webhook| FreightVoice["FreightVoice Flask middleware"]
+    FreightVoice --> Validation["Pydantic schemas + validation engine"]
+    FreightVoice --> TMSAdapter["TMSAdapter interface"]
+    TMSAdapter --> FakeTMS["FakeTMS on port 5001"]
+    FreightVoice --> Factoring["FactoringAdapter interface"]
+    FakeTMS --> Dashboard["Dashboard /state polling"]
+```
+
+## The Mock/Real Boundary Stated Plainly
+
+The only mock is the FakeTMS on port 5001. The webhook path, validation engine, and adapter interfaces are production code. Switching to Samsara means implementing one class and changing one env var.
+
+## Going To Production
+
+1. Implement `SamsaraAdapter` or `MotiveAdapter` by filling in the `NotImplementedError` stubs in `freightvoice/adapters/`.
+2. Set `FREIGHTVOICE_TMS=samsara` and `SAMSARA_API_KEY=...`.
+3. Deploy FreightVoice to any HTTPS-accessible host.
+4. Update the `server.url` in all four Vapi tool definitions.
+5. Point the Vapi assistant at your Nebius Token Factory endpoint. See `docs/VAPI_SETUP.md`.
+
+## Config Reference
+
+| Env var | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `FREIGHTVOICE_PORT` | int | `5000` | FreightVoice Flask port. |
+| `FAKETMS_URL` | string | `http://localhost:5001` | Base URL for FakeTMS. |
+| `FREIGHTVOICE_TMS` | string | `fake` | TMS adapter: `fake`, `samsara`, or `motive`. |
+| `FREIGHTVOICE_FACTORING` | string | `fake` | Factoring adapter: `fake` or `rts`. |
+| `VAPI_AUTH_TOKEN` | string | empty | Optional token reference for Vapi configuration. |
+| `NEBIUS_API_KEY` | string | empty | Optional key for Vapi BYOK/Nebius setup. |
+| `WEIGHT_VARIANCE_PCT` | float | `5.0` | Weight variance threshold. |
+| `PIECE_VARIANCE_ALLOW` | int | `0` | Allowed piece shortage before flagging. |
+| `WEBHOOK_SECRET` | string | empty | Shared webhook secret. Empty means dev mode. |
+| `AUTO_INVOICE_BELOW_SEVERITY` | string | `warning` | Lowest severity that blocks auto-invoicing. |
+| `FAKETMS_DATABASE_URL` | string | `sqlite:///faketms.sqlite3` | FakeTMS database URL. |
+| `FAKETMS_PORT` | int | `5001` | FakeTMS Flask port. |
+
+## Running Tests
 
 ```bash
-make test        # 40 tests, localhost only
+.venv/bin/python -m pytest tests/ -v
 ```
-
-First run creates a virtualenv and installs Flask / pydantic / requests / pytest.
-
----
-
-## Architecture
-
-```
-Vapi (real, configured in the Vapi dashboard — NOT built here)
-   │  HTTPS webhook calls during the live call
-   ▼
-┌─────────────────────────────────────┐
-│  freightvoice/  (Flask, :5000)       │   ← REAL. This is the product.
-│   webhook endpoints (Vapi-facing)    │
-│   validation + discrepancy engine    │
-│   pydantic schemas (load / POD / acc)│
-│   TMSAdapter / FactoringAdapter      │   ← the seam
-│   dashboard (POD log, live)          │
-└──────────────┬──────────────────────┘
-               │ HTTP, via FakeTMSAdapter
-               ▼
-┌─────────────────────────────────────┐
-│  faketms/  (Flask, :5001)            │   ← FAKE, behaves like a real TMS
-│   seeded demo loads (SQLite)         │
-│   GET /loads/<id>, POST /pod, …      │
-└─────────────────────────────────────┘
-```
-
-`freightvoice/` contains **nothing carrier-specific**. It depends only on the
-abstract `TMSAdapter` / `FactoringAdapter` interfaces in
-[`freightvoice/adapters/base.py`](freightvoice/adapters/base.py). Two concrete
-TMS adapters ship:
-
-- **`FakeTMSAdapter`** — real, working; talks HTTP to the `faketms` service. Used in the demo.
-- **`SamsaraAdapter`** (+ `MotiveAdapter`, `RTSFactoringAdapter`) — stubs that name the real REST endpoints and `raise NotImplementedError`. They exist to prove the seam, not to run.
-
-The adapter is chosen by `FREIGHTVOICE_TMS=fake|samsara|motive`.
-
----
-
-## The webhook contract (what Vapi calls)
-
-Vapi invokes these as server tools — a `message.toolCalls[]` envelope in, a
-`results[]` array keyed by `toolCallId` out (see
-[`freightvoice/vapi.py`](freightvoice/vapi.py)).
-
-| Endpoint | What it does |
-|---|---|
-| `POST /webhook/get_load_context`   | `adapter.get_load(load_id)` → returns `LoadContext` so the agent confirms, not dictates. Unknown load → tells the agent to have the driver re-read the number. |
-| `POST /webhook/push_delivery_record` | validate → discrepancy engine → `write_pod` → if clean, `trigger_invoice` + factoring advance. Returns a spoken readback. |
-| `POST /webhook/flag_discrepancy`   | explicit escalation to the exception queue, with a transcript excerpt. |
-| `POST /webhook/schedule_callback`  | records a callback intent (driver dropped). No real outbound dialing. |
-
-Plus the dashboard: `GET /` and `GET /api/state` (polled every 2s).
-
-### The discrepancy engine
-
-[`freightvoice/validation.py`](freightvoice/validation.py) — pure, tested
-functions. Each trigger carries **its own severity** (never one generic flag):
-
-| Trigger | Severity |
-|---|---|
-| weight variance > 5% (configurable) | `warning` (→ `critical` if > 15%) |
-| piece count short vs expected | `critical` |
-| piece count over | `warning` |
-| damage reported | `critical` |
-| exception ∈ {refused, short, redelivery} | `critical` |
-| missing recipient name | `warning` |
-
-A clean record returns `[]` and proceeds straight to invoicing.
-
-### The three seeded loads
-
-| Load | Scenario | Result |
-|---|---|---|
-| `L1001` | actuals match | clean → **invoiced** |
-| `L2002` | weight ~13% under | **held** (weight_variance) |
-| `L3003` | damage + refused | **held** (damage + exception) |
-
----
-
-## The LLM seam
-
-The fine-tuned LLM lives inside Vapi's config, not this codebase — the webhooks
-receive already-structured tool-call args, so there is **no inference in the
-middleware**. [`docs/VAPI_SETUP.md`](docs/VAPI_SETUP.md) contains the assistant
-system prompt (confirm-don't-dictate, closed questions, explicit readback,
-graceful retry), the four tool definitions, the Nebius custom-LLM `base_url`
-block, and the `FreightVoice-FT-v1` fine-tuning script as a documented future
-seam.
-
----
-
-## Going to production
-
-1. Implement `SamsaraAdapter` (or `MotiveAdapter`) in
-   [`freightvoice/adapters/`](freightvoice/adapters/) — four methods, endpoints
-   already named in the docstrings.
-2. Set `FREIGHTVOICE_TMS=samsara` and provide the API token.
-3. Deploy `freightvoice/`, point the Vapi tool URLs (`docs/VAPI_SETUP.md`) at the
-   deployed host.
-
-That's the list. Nothing in `freightvoice/` changes.
-
----
-
-## Production expansion path (Batch B — FreightLedger)
-
-The MVP here is the **voice capture → POD → invoice** loop. The production
-roadmap layers an invoice-reconciliation product on top once that loop is
-stable. These are **documented as the expansion path, not built or required for
-the first demo** — none of them are needed to run `make demo`:
-
-- **Invoice extraction** — upload invoice metadata → queue an OCR/extraction job
-  (Flask + SQLAlchemy, Redis/RQ workers) → Nebius **strict JSON-schema** output
-  for fields + line items; reject invalid JSON, mark incomplete on missing
-  total, flag duplicate invoice numbers.
-- **RAG evidence** — InsForge **Postgres + pgvector** as both system of record
-  and vector store. `/api/rag/search` returns evidence chunks **filtered by
-  relational keys** (`load_id`, `source_type`) so there's no cross-load leakage;
-  low-confidence matches route to review.
-- **HIL (human-in-the-loop)** — when reconciliation lacks proof (e.g. detention),
-  create a HIL task; post the call result back; rerun reconciliation; update the
-  line item to supported / partially-supported / unsupported.
-- **Security & audit** — Vapi webhook **HMAC signature verification** (reject
-  missing/invalid, accept valid), structured JSON logs carrying `request_id`,
-  `invoice_id`, `load_id`, `vapi_call_id`, `rq_job_id`, durable audit entries for
-  every state transition, and **PII redaction** (phone/email) before any Nebius
-  prompt.
-
-The build decision: ship the FreightVoice webhook path first (this repo), then
-add FreightLedger's extraction / RAG / HIL / reconciliation on top. The adapter
-seam here is what makes that layering clean.
-
-## Tech & layout
-
-Python 3.11+, Flask, **stdlib `sqlite3`** (no ORM), `requests`, `pydantic` v2 for
-schemas/validation, `pytest`.
-
-```
-freightvoice/        the product (webhooks, validation, schemas, adapters, dashboard)
-  adapters/          base ABCs + fake (working) + samsara/motive/rts (stubs)
-faketms/             the only mock — seeded SQLite TMS
-demo/simulate_call.py replay the 3 loads without a phone
-docs/VAPI_SETUP.md   Vapi assistant prompt, tools, Nebius block, SFT script
-tests/               schema, discrepancy, webhook-contract, end-to-end
-```
-
-## Compliance note (stated once)
-
-For a real deployment, the call is handled under an FMCSA-aligned posture:
-driver consent captured at call start and zero-retention of raw audio (Vapi
-configured to not persist recordings; FreightVoice stores only the structured
-record and a short transcript excerpt for the discrepancy it documents). This is
-a configuration and policy matter, not runtime behavior in this demo.
-
-Performance targets in the PRD (latency, word-error-rate, extraction accuracy)
-are **targets**, not measured claims — they are deliberately not asserted as fact
-here.
