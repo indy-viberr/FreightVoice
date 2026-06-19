@@ -127,6 +127,36 @@ def test_schedule_callback_records_intent(client):
     assert any(c["load_id"] == "L2002" for c in state["callbacks"])
 
 
+# --- malformed / missing-field handling ----------------------------------- #
+def test_malformed_json_returns_controlled_error(client):
+    resp = client.post("/webhook/push_delivery_record",
+                       data="{not valid json", content_type="application/json")
+    assert resp.status_code == 400
+    body = resp.get_json()
+    assert body["error"] == "invalid_json"  # controlled, not an HTML stack trace
+
+
+def test_push_missing_required_field_is_agent_friendly(client):
+    # No actual_pieces / actual_weight_lbs -> schema error, surfaced to agent.
+    args = {"load_id": "L1001", "delivered_at": "2026-06-19T14:32:00",
+            "recipient_name": "J. Rivera"}
+    resp = client.post("/webhook/push_delivery_record",
+                       json=vapi_envelope("m1", "push_delivery_record", args))
+    assert resp.status_code == 200  # controlled — no 500
+    r = first_result(resp.get_json())
+    assert "again" in r["result"].lower()
+
+
+def test_all_four_webhook_endpoints_exist(client):
+    for ep in ("get_load_context", "push_delivery_record",
+               "flag_discrepancy", "schedule_callback"):
+        resp = client.post(f"/webhook/{ep}",
+                           json=vapi_envelope("e", ep, {"load_id": "L1001",
+                                                        "reason": "x"}))
+        assert resp.status_code in (200,), f"{ep} -> {resp.status_code}"
+        assert "results" in resp.get_json()
+
+
 # --- envelope robustness -------------------------------------------------- #
 def test_handles_arguments_as_json_string(client):
     """Vapi sometimes sends function.arguments as a JSON-encoded string."""

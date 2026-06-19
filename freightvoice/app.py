@@ -45,6 +45,21 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _tool_calls_or_error():
+    """Parse the inbound body into tool calls, or return a controlled 400.
+
+    ``silent=True`` makes malformed JSON return ``None`` instead of throwing
+    werkzeug's default HTML 400 — so a bad body yields a clean JSON error the
+    agent/caller can handle, not a stack trace.
+    """
+    body = request.get_json(force=True, silent=True)
+    if body is None:
+        log.warning("[webhook] rejected: body was not valid JSON")
+        return None, (jsonify(error="invalid_json",
+                              message="Request body was not valid JSON."), 400)
+    return parse_tool_calls(body), None
+
+
 def create_app() -> Flask:
     app = Flask(__name__, static_folder="static", static_url_path="/static")
     tms = get_tms_adapter()
@@ -59,8 +74,11 @@ def create_app() -> Flask:
     # ------------------------------------------------------------------ #
     @app.post("/webhook/get_load_context")
     def get_load_context():
+        calls, err = _tool_calls_or_error()
+        if err:
+            return err
         results = []
-        for call in parse_tool_calls(request.get_json(force=True)):
+        for call in calls:
             load_id = (call.arguments.get("load_id")
                        or call.arguments.get("pro_number") or "").strip()
             log.info("[get_load_context] inbound load_id=%r", load_id)
@@ -104,8 +122,11 @@ def create_app() -> Flask:
     # ------------------------------------------------------------------ #
     @app.post("/webhook/push_delivery_record")
     def push_delivery_record():
+        calls, err = _tool_calls_or_error()
+        if err:
+            return err
         results = []
-        for call in parse_tool_calls(request.get_json(force=True)):
+        for call in calls:
             results.append((call.id, _handle_push(call, tms, factoring, disc_config)))
         return jsonify(results_envelope(results))
 
@@ -116,8 +137,11 @@ def create_app() -> Flask:
     def flag_discrepancy():
         from .validation import Discrepancy, DiscrepancyCode, Severity
 
+        calls, err = _tool_calls_or_error()
+        if err:
+            return err
         results = []
-        for call in parse_tool_calls(request.get_json(force=True)):
+        for call in calls:
             a = call.arguments
             load_id = (a.get("load_id") or "").strip()
             reason = a.get("reason") or a.get("message") or "Driver-reported issue"
@@ -154,8 +178,11 @@ def create_app() -> Flask:
     # ------------------------------------------------------------------ #
     @app.post("/webhook/schedule_callback")
     def schedule_callback():
+        calls, err = _tool_calls_or_error()
+        if err:
+            return err
         results = []
-        for call in parse_tool_calls(request.get_json(force=True)):
+        for call in calls:
             a = call.arguments
             load_id = (a.get("load_id") or "").strip() or None
             reason = a.get("reason") or "Driver disconnected"

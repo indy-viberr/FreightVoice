@@ -130,3 +130,23 @@ def test_delivery_record_rejects_unknown_field():
     bad = _valid_record() | {"signature_image": "base64..."}
     with pytest.raises(ValidationError):
         DeliveryRecord(**bad)
+
+
+def test_delivery_record_rejects_non_numeric_piece_count():
+    bad = _valid_record() | {"actual_pieces": "twenty"}
+    with pytest.raises(ValidationError):
+        DeliveryRecord(**bad)
+
+
+def test_delivery_record_rejects_negative_weight():
+    bad = _valid_record() | {"actual_weight_lbs": -100}
+    with pytest.raises(ValidationError):
+        DeliveryRecord(**bad)
+
+
+def test_delivery_record_accepts_detention_with_duration():
+    rec = DeliveryRecord(
+        **_valid_record(),
+        accessorials=[{"type": "detention", "duration_minutes": 120}],
+    )
+    assert rec.accessorials[0].duration_minutes == 120

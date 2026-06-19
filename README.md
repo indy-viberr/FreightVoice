@@ -139,6 +139,34 @@ That's the list. Nothing in `freightvoice/` changes.
 
 ---
 
+## Production expansion path (Batch B — FreightLedger)
+
+The MVP here is the **voice capture → POD → invoice** loop. The production
+roadmap layers an invoice-reconciliation product on top once that loop is
+stable. These are **documented as the expansion path, not built or required for
+the first demo** — none of them are needed to run `make demo`:
+
+- **Invoice extraction** — upload invoice metadata → queue an OCR/extraction job
+  (Flask + SQLAlchemy, Redis/RQ workers) → Nebius **strict JSON-schema** output
+  for fields + line items; reject invalid JSON, mark incomplete on missing
+  total, flag duplicate invoice numbers.
+- **RAG evidence** — InsForge **Postgres + pgvector** as both system of record
+  and vector store. `/api/rag/search` returns evidence chunks **filtered by
+  relational keys** (`load_id`, `source_type`) so there's no cross-load leakage;
+  low-confidence matches route to review.
+- **HIL (human-in-the-loop)** — when reconciliation lacks proof (e.g. detention),
+  create a HIL task; post the call result back; rerun reconciliation; update the
+  line item to supported / partially-supported / unsupported.
+- **Security & audit** — Vapi webhook **HMAC signature verification** (reject
+  missing/invalid, accept valid), structured JSON logs carrying `request_id`,
+  `invoice_id`, `load_id`, `vapi_call_id`, `rq_job_id`, durable audit entries for
+  every state transition, and **PII redaction** (phone/email) before any Nebius
+  prompt.
+
+The build decision: ship the FreightVoice webhook path first (this repo), then
+add FreightLedger's extraction / RAG / HIL / reconciliation on top. The adapter
+seam here is what makes that layering clean.
+
 ## Tech & layout
 
 Python 3.11+, Flask, **stdlib `sqlite3`** (no ORM), `requests`, `pydantic` v2 for
